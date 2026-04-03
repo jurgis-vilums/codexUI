@@ -1271,6 +1271,10 @@ function canRollbackMessage(message: UiMessage): boolean {
   if (message.role !== 'user' && message.role !== 'assistant') return false
   if (typeof message.turnIndex !== 'number') return false
   if (props.isTurnInProgress || props.isRollingBack) return false
+  // Only show rollback on the last message of each turn
+  const idx = props.messages.indexOf(message)
+  const nextMsg = idx >= 0 ? props.messages[idx + 1] : undefined
+  if (nextMsg && nextMsg.turnIndex === message.turnIndex) return false
   return true
 }
 
