@@ -1,4 +1,4 @@
-import { listSessions, query, getSessionMessages } from '@anthropic-ai/claude-agent-sdk'
+import { listSessions, query, getSessionMessages, renameSession, forkSession } from '@anthropic-ai/claude-agent-sdk'
 import type { SDKSessionInfo, Query, SDKMessage, SessionMessage } from '@anthropic-ai/claude-agent-sdk'
 
 type RpcParams = Record<string, unknown>
@@ -6,6 +6,7 @@ type NotificationListener = (value: { method: string; params: unknown }) => void
 
 export class ClaudeAdapter {
   private initialized = false
+  private defaultModel: string | undefined = undefined
   private activeSessions = new Map<string, { query: Query; abortController: AbortController }>()
   private notificationListeners = new Set<NotificationListener>()
 
@@ -44,8 +45,53 @@ export class ClaudeAdapter {
           nextCursor: null,
         }
 
+      case 'thread/resume':
+        return this.handleThreadResume(p)
+
+      case 'thread/archive':
+        return {}
+
+      case 'thread/name/set':
+        return this.handleThreadNameSet(p)
+
+      case 'setDefaultModel':
+        this.defaultModel = typeof p.model === 'string' ? p.model : undefined
+        return {}
+
+      case 'thread/rollback':
+        return { thread: { id: p.threadId, turns: [] } }
+
+      case 'thread/fork':
+        return this.handleThreadFork(p)
+
+      case 'config/read':
+        return {
+          config: {},
+          origins: {},
+          layers: null,
+        }
+
+      case 'config/batchWrite':
+        return {}
+
+      case 'account/rateLimits/read':
+        return {
+          rateLimits: { remaining: 1000, limit: 1000, resetAt: null },
+          rateLimitsByLimitId: null,
+        }
+
+      case 'generate-thread-title':
+        return this.handleGenerateTitle(p)
+
+      case 'skills/list':
+        return { data: [] }
+
+      case 'skills/config/write':
+        return {}
+
       default:
-        throw new Error(`Unknown method: ${method}`)
+        console.warn(`[claude-adapter] unhandled method: ${method}`)
+        return {}
     }
   }
 
@@ -89,7 +135,7 @@ export class ClaudeAdapter {
 
   private async handleThreadStart(params: RpcParams) {
     const cwd = typeof params.cwd === 'string' ? params.cwd : process.cwd()
-    const model = typeof params.model === 'string' ? params.model : undefined
+    const model = typeof params.model === 'string' ? params.model : this.defaultModel
     const abortController = new AbortController()
 
     const q = query({
@@ -123,6 +169,58 @@ export class ClaudeAdapter {
     return {
       thread: { id: sessionId },
     }
+  }
+
+  private async handleThreadResume(params: RpcParams) {
+    const threadId = params.threadId as string
+    const abortController = new AbortController()
+
+    const q = query({
+      prompt: '',
+      options: {
+        resume: threadId,
+        permissionMode: 'bypassPermissions',
+        abortController,
+      },
+    })
+
+    let sessionId = ''
+    for await (const msg of q) {
+      if (msg.type === 'system' && msg.subtype === 'init') {
+        sessionId = msg.session_id
+        break
+      }
+      if (msg.type === 'result') break
+    }
+
+    if (!sessionId) sessionId = threadId
+    this.activeSessions.set(sessionId, { query: q, abortController })
+
+    return { thread: { id: sessionId } }
+  }
+
+  private async handleThreadNameSet(params: RpcParams) {
+    const threadId = params.threadId as string
+    const name = params.name as string
+    await renameSession(threadId, name, {})
+    return {}
+  }
+
+  private async handleThreadFork(params: RpcParams) {
+    const threadId = params.threadId as string
+    const result = await forkSession(threadId, {})
+    return {
+      thread: { id: result.sessionId },
+    }
+  }
+
+  private handleGenerateTitle(params: RpcParams) {
+    const prompt = typeof params.prompt === 'string' ? params.prompt : ''
+    // Generate a simple title from the first ~50 chars of the prompt
+    const title = prompt.length > 50
+      ? prompt.slice(0, 50).trim() + '...'
+      : prompt.trim()
+    return { title: title || 'New conversation' }
   }
 
   private async handleThreadRead(params: RpcParams) {

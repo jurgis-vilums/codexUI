@@ -16,6 +16,8 @@ import {
   query as mockQuery,
   listSessions as mockListSessions,
   getSessionMessages as mockGetSessionMessages,
+  renameSession as mockRenameSession,
+  forkSession as mockForkSession,
 } from '@anthropic-ai/claude-agent-sdk'
 
 describe('ClaudeAdapter', () => {
@@ -407,6 +409,117 @@ describe('ClaudeAdapter', () => {
           turnId: 'some-turn',
         })
       ).rejects.toThrow()
+    })
+  })
+
+  describe('thread/name/set', () => {
+    it('calls renameSession with session id and name', async () => {
+      vi.mocked(mockRenameSession).mockResolvedValue(undefined)
+
+      await adapter.rpc('thread/name/set', {
+        threadId: 'sess-rename-001',
+        name: 'My Custom Title',
+      })
+
+      expect(mockRenameSession).toHaveBeenCalledWith(
+        'sess-rename-001',
+        'My Custom Title',
+        {},
+      )
+    })
+  })
+
+  describe('thread/fork', () => {
+    it('calls forkSession and returns new thread id', async () => {
+      vi.mocked(mockForkSession).mockResolvedValue({
+        sessionId: 'sess-forked-001',
+        title: 'Fork of original',
+      })
+
+      const result = await adapter.rpc('thread/fork', {
+        threadId: 'sess-original-001',
+      }) as any
+
+      expect(mockForkSession).toHaveBeenCalledWith(
+        'sess-original-001',
+        {},
+      )
+      expect(result.thread.id).toBe('sess-forked-001')
+    })
+  })
+
+  describe('thread/resume', () => {
+    it('creates a query with resume option and returns thread', async () => {
+      const sessionId = 'sess-resume-001'
+
+      const resumeQuery = (async function* () {
+        yield {
+          type: 'system', subtype: 'init', session_id: sessionId,
+          cwd: '/project', model: 'claude-opus-4-1',
+          tools: [], mcp_servers: [], permissionMode: 'bypassPermissions',
+          slash_commands: [], skills: [], output_style: 'concise', plugins: [],
+          uuid: '00000000-0000-0000-0000-000000000030',
+          claude_code_version: '1.0.0', apiKeySource: 'user',
+        }
+      })()
+
+      vi.mocked(mockQuery).mockReturnValueOnce(resumeQuery as any)
+
+      const result = await adapter.rpc('thread/resume', {
+        threadId: sessionId,
+      }) as any
+
+      expect(mockQuery).toHaveBeenCalledWith({
+        prompt: '',
+        options: expect.objectContaining({
+          resume: sessionId,
+          permissionMode: 'bypassPermissions',
+        }),
+      })
+
+      expect(result.thread.id).toBe(sessionId)
+    })
+  })
+
+  describe('setDefaultModel', () => {
+    it('stores the model and uses it in subsequent thread/start calls', async () => {
+      await adapter.rpc('setDefaultModel', { model: 'claude-haiku-4-5-20251001' })
+
+      const fakeQuery = (async function* () {
+        yield {
+          type: 'system', subtype: 'init', session_id: 'sess-model-001',
+          cwd: '/project', model: 'claude-haiku-4-5-20251001',
+          tools: [], mcp_servers: [], permissionMode: 'bypassPermissions',
+          slash_commands: [], skills: [], output_style: 'concise', plugins: [],
+          uuid: '00000000-0000-0000-0000-000000000040',
+          claude_code_version: '1.0.0', apiKeySource: 'user',
+        }
+      })()
+
+      vi.mocked(mockQuery).mockReturnValueOnce(fakeQuery as any)
+
+      await adapter.rpc('thread/start', { cwd: '/project' })
+
+      expect(mockQuery).toHaveBeenCalledWith({
+        prompt: '',
+        options: expect.objectContaining({
+          model: 'claude-haiku-4-5-20251001',
+        }),
+      })
+    })
+  })
+
+  describe('generate-thread-title', () => {
+    it('returns a title based on the prompt', async () => {
+      const result = await adapter.rpc('generate-thread-title', {
+        prompt: 'Fix the authentication bug in the login flow',
+        cwd: '/project',
+      }) as any
+
+      // Should return a non-null title derived from the prompt
+      expect(result.title).toBeDefined()
+      expect(typeof result.title).toBe('string')
+      expect(result.title.length).toBeGreaterThan(0)
     })
   })
 })
