@@ -1,6 +1,16 @@
 import type { RpcEnvelope, RpcMethodCatalog } from '../types/codex'
 import { CodexApiError, extractErrorMessage } from './codexErrors'
 
+let _activeBackend: 'codex' | 'claude' = 'codex'
+
+export function setActiveBackend(backend: 'codex' | 'claude'): void {
+  _activeBackend = backend
+}
+
+export function getActiveBackend(): 'codex' | 'claude' {
+  return _activeBackend
+}
+
 type RpcRequestBody = {
   method: string
   params?: unknown
@@ -36,6 +46,7 @@ export async function rpcCall<T>(method: string, params?: unknown): Promise<T> {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-Backend': _activeBackend,
       },
       body: JSON.stringify(body),
     })
@@ -151,7 +162,7 @@ export function subscribeRpcNotifications(onNotification: (value: RpcNotificatio
 
   const attachSse = () => {
     if (typeof EventSource === 'undefined' || closed) return
-    const source = new EventSource('/codex-api/events')
+    const source = new EventSource(`/codex-api/events?backend=${_activeBackend}`)
 
     source.onmessage = (event) => {
       try {
@@ -169,7 +180,7 @@ export function subscribeRpcNotifications(onNotification: (value: RpcNotificatio
 
   if (typeof WebSocket !== 'undefined') {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const socket = new WebSocket(`${protocol}//${window.location.host}/codex-api/ws`)
+    const socket = new WebSocket(`${protocol}//${window.location.host}/codex-api/ws?backend=${_activeBackend}`)
     let didOpen = false
     let fallbackTimer: number | null = window.setTimeout(() => {
       if (didOpen || closed) return
