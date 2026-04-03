@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { writeFile } from 'node:fs/promises'
+import { ClaudeAdapter } from './claudeAdapter.js'
 import { handleSkillsRoutes, initializeSkillsSyncOnStartup } from './skillsRoutes.js'
 import { TelegramThreadBridge } from './telegramThreadBridge.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
@@ -1431,11 +1432,12 @@ class MethodCatalog {
 
 type CodexBridgeMiddleware = ((req: IncomingMessage, res: ServerResponse, next: () => void) => Promise<void>) & {
   dispose: () => void
-  subscribeNotifications: (listener: (value: { method: string; params: unknown; atIso: string }) => void) => () => void
+  subscribeNotifications: (listener: (value: { method: string; params: unknown; atIso: string }) => void, backend?: 'codex' | 'claude') => () => void
 }
 
 type SharedBridgeState = {
   appServer: AppServerProcess
+  claudeAdapter: ClaudeAdapter
   methodCatalog: MethodCatalog
   telegramBridge: TelegramThreadBridge
 }
@@ -1451,8 +1453,10 @@ function getSharedBridgeState(): SharedBridgeState {
   if (existing) return existing
 
   const appServer = new AppServerProcess()
+  const claudeAdapter = new ClaudeAdapter()
   const created: SharedBridgeState = {
     appServer,
+    claudeAdapter,
     methodCatalog: new MethodCatalog(),
     telegramBridge: new TelegramThreadBridge(appServer, {
       onChatSeen: (chatId) => {
@@ -1462,6 +1466,13 @@ function getSharedBridgeState(): SharedBridgeState {
   }
   globalScope[SHARED_BRIDGE_KEY] = created
   return created
+}
+
+function getBackendForRequest(req: IncomingMessage): { rpc: (method: string, params: unknown) => Promise<unknown>; onNotification: (listener: (value: { method: string; params: unknown }) => void) => () => void } {
+  const header = req.headers['x-backend']
+  const backend = typeof header === 'string' ? header : 'codex'
+  const { appServer, claudeAdapter } = getSharedBridgeState()
+  return backend === 'claude' ? claudeAdapter : appServer
 }
 
 async function loadAllThreadsForSearch(appServer: AppServerProcess): Promise<ThreadSearchDocument[]> {
@@ -1586,7 +1597,8 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           return
         }
 
-        const rpcResult = await appServer.rpc(body.method, body.params ?? null)
+        const backend = getBackendForRequest(req)
+        const rpcResult = await backend.rpc(body.method, body.params ?? null)
         const result = trimThreadTurnsInRpcResult(body.method, rpcResult)
         setJson(res, 200, { result })
         return
@@ -2047,10 +2059,11 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         res.setHeader('Connection', 'keep-alive')
         res.setHeader('X-Accel-Buffering', 'no')
 
+        const sseBackend = url.searchParams.get('backend') === 'claude' ? 'claude' as const : 'codex' as const
         const unsubscribe = middleware.subscribeNotifications((notification: { method: string; params: unknown; atIso: string }) => {
           if (res.writableEnded || res.destroyed) return
           res.write(`data: ${JSON.stringify(notification)}\n\n`)
-        })
+        }, sseBackend)
 
         res.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`)
         const keepAlive = setInterval(() => {
@@ -2081,11 +2094,16 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
     threadSearchIndex = null
     telegramBridge.stop()
     appServer.dispose()
+    const { claudeAdapter } = getSharedBridgeState()
+    claudeAdapter.dispose()
   }
   middleware.subscribeNotifications = (
     listener: (value: { method: string; params: unknown; atIso: string }) => void,
+    backend?: 'codex' | 'claude',
   ) => {
-    return appServer.onNotification((notification: { method: string; params: unknown }) => {
+    const { appServer: codexServer, claudeAdapter } = getSharedBridgeState()
+    const notifBackend = backend === 'claude' ? claudeAdapter : codexServer
+    return notifBackend.onNotification((notification: { method: string; params: unknown }) => {
       listener({
         ...notification,
         atIso: new Date().toISOString(),
