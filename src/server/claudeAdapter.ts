@@ -1,5 +1,6 @@
 import { listSessions, query, getSessionMessages, renameSession, forkSession } from '@anthropic-ai/claude-agent-sdk'
 import type { SDKSessionInfo, Query, SDKMessage, SessionMessage } from '@anthropic-ai/claude-agent-sdk'
+import { scanClaudeSkills } from './claudeSkills.js'
 
 type RpcParams = Record<string, unknown>
 type NotificationListener = (value: { method: string; params: unknown }) => void
@@ -104,8 +105,11 @@ export class ClaudeAdapter {
       case 'generate-thread-title':
         return this.handleGenerateTitle(p)
 
-      case 'skills/list':
-        return { data: [] }
+      case 'skills/list': {
+        const cwds = Array.isArray(p.cwds) ? p.cwds as string[] : [process.cwd()]
+        const cwd = cwds[0] ?? process.cwd()
+        return scanClaudeSkills(cwd)
+      }
 
       case 'skills/config/write':
         return {}
