@@ -28,53 +28,36 @@ describe('ClaudeAdapter', () => {
     adapter = new ClaudeAdapter()
   })
 
-  describe('initialize', () => {
-    it('returns server info and authenticated: true when listSessions succeeds', async () => {
+  describe('initialize / auth', () => {
+    it('probes auth on first RPC call and sets authenticated: true', async () => {
       vi.mocked(mockListSessions).mockResolvedValue([])
 
-      const result = await adapter.rpc('initialize', {
-        clientInfo: { name: 'codex-web-local', version: '0.1.0' },
-      }) as any
+      // Any RPC call triggers ensureInitialized
+      await adapter.rpc('model/list', {})
 
-      expect(result).toMatchObject({
-        serverInfo: {
-          name: 'claude-adapter',
-          version: '0.1.0',
-        },
-        authenticated: true,
-      })
+      const status = await adapter.rpc('auth/status', {}) as any
+      expect(status.authenticated).toBe(true)
       expect(mockListSessions).toHaveBeenCalledWith({ limit: 1 })
     })
 
-    it('returns authenticated: false and authError when listSessions throws', async () => {
-      vi.mocked(mockListSessions).mockRejectedValue(new Error('Invalid API key'))
+    it('sets authenticated: false when listSessions throws', async () => {
+      vi.mocked(mockListSessions).mockRejectedValue(new Error('Token expired'))
 
-      const result = await adapter.rpc('initialize', {
-        clientInfo: { name: 'codex-web-local', version: '0.1.0' },
-      }) as any
+      await adapter.rpc('model/list', {})
 
-      expect(result).toMatchObject({
-        serverInfo: {
-          name: 'claude-adapter',
-          version: '0.1.0',
-        },
-        authenticated: false,
-        authError: 'Invalid API key',
-      })
+      const status = await adapter.rpc('auth/status', {}) as any
+      expect(status.authenticated).toBe(false)
+      expect(status.loginCommand).toBe('claude login')
     })
 
-    it('marks adapter as initialized after first call', async () => {
+    it('only probes once — second call does not re-check', async () => {
       vi.mocked(mockListSessions).mockResolvedValue([])
 
-      await adapter.rpc('initialize', {
-        clientInfo: { name: 'codex-web-local', version: '0.1.0' },
-      })
+      await adapter.rpc('model/list', {})
+      await adapter.rpc('model/list', {})
 
-      // Second call should work without error
-      const result = await adapter.rpc('initialize', {
-        clientInfo: { name: 'codex-web-local', version: '0.1.0' },
-      })
-      expect(result).toBeDefined()
+      // listSessions called once for auth probe, not for model/list
+      expect(mockListSessions).toHaveBeenCalledTimes(1)
     })
   })
 

@@ -11,30 +11,28 @@ export class ClaudeAdapter {
   private activeSessions = new Map<string, { query: Query; abortController: AbortController }>()
   private notificationListeners = new Set<NotificationListener>()
 
+  private async ensureInitialized(): Promise<void> {
+    if (this.initialized) return
+    this.initialized = true
+    try {
+      await listSessions({ limit: 1 })
+      this.authenticated = true
+    } catch (error) {
+      this.authenticated = false
+      console.warn(`[claude-adapter] auth check failed: ${error instanceof Error ? error.message : error}`)
+    }
+  }
+
   async rpc(method: string, params: unknown): Promise<unknown> {
+    await this.ensureInitialized()
     const p = (params ?? {}) as RpcParams
 
     switch (method) {
-      case 'initialize': {
-        this.initialized = true
-        try {
-          await listSessions({ limit: 1 })
-          this.authenticated = true
-          return {
-            serverInfo: { name: 'claude-adapter', version: '0.1.0' },
-            authenticated: true,
-          }
-        } catch (error) {
-          this.authenticated = false
-          const authError = error instanceof Error ? error.message : String(error)
-          console.warn(`[claude-adapter] auth check failed: ${authError}`)
-          return {
-            serverInfo: { name: 'claude-adapter', version: '0.1.0' },
-            authenticated: false,
-            authError,
-          }
+      case 'initialize':
+        return {
+          serverInfo: { name: 'claude-adapter', version: '0.1.0' },
+          authenticated: this.authenticated,
         }
-      }
 
       case 'auth/status':
         return {
