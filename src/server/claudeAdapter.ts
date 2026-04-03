@@ -470,7 +470,7 @@ export class ClaudeAdapter {
         status: 'completed',
         commandActions: [],
         aggregatedOutput: null,
-        exitCode: null,
+        exitCode: 0,
         durationMs: null,
       }
       this.emitNotification('item/started', { item, threadId, turnId })
@@ -588,7 +588,7 @@ export class ClaudeAdapter {
               status: 'completed',
               commandActions: [],
               aggregatedOutput: null,
-              exitCode: null,
+              exitCode: 0,
               durationMs: null,
             })
           } else if (toolName === 'Edit' || toolName === 'Write') {
