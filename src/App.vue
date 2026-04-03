@@ -134,7 +134,7 @@
 
     <template #content>
       <section class="content-root">
-        <ContentHeader :title="contentTitle">
+        <ContentHeader :title="contentTitle" :active-backend="activeBackend" @toggle-backend="onToggleBackend">
           <template #leading>
             <SidebarThreadControls
               v-if="isSidebarCollapsed || isMobile"
@@ -304,6 +304,7 @@ import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vu
 import IconTablerSearch from './components/icons/IconTablerSearch.vue'
 import IconTablerSettings from './components/icons/IconTablerSettings.vue'
 import IconTablerX from './components/icons/IconTablerX.vue'
+import { setActiveBackend } from './api/codexRpcClient'
 import { useDesktopState } from './composables/useDesktopState'
 import { useMobile } from './composables/useMobile'
 import {
@@ -494,6 +495,7 @@ const threadComposerRef = ref<ThreadComposerExposed | null>(null)
 const trendingProjects = ref<GithubTrendingProject[]>([])
 const isTrendingProjectsLoading = ref(false)
 const githubTipsScope = ref<GithubTipsScope>('trending-daily')
+const activeBackend = ref<'codex' | 'claude'>('codex')
 const editingQueuedMessageState = ref<{ threadId: string; queueIndex: number } | null>(null)
 const isRouteSyncInProgress = ref(false)
 const hasInitialized = ref(false)
@@ -697,6 +699,22 @@ watch(sidebarSearchQuery, (value) => {
 
 function onSkillsChanged(): void {
   void refreshSkills()
+}
+
+async function onToggleBackend(): Promise<void> {
+  const next = activeBackend.value === 'codex' ? 'claude' : 'codex'
+  activeBackend.value = next
+  setActiveBackend(next)
+
+  // Clear selected thread (messages computed will auto-clear)
+  selectedThreadId.value = ''
+
+  // Restart notification subscription with new backend query param
+  stopPolling()
+  startPolling()
+
+  // Reload thread list from new backend
+  await refreshAll()
 }
 
 async function refreshTelegramStatus(): Promise<void> {
