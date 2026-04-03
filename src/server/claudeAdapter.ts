@@ -81,7 +81,7 @@ export class ClaudeAdapter {
         return {}
 
       case 'thread/rollback':
-        return { thread: { id: p.threadId, turns: [] } }
+        return this.handleThreadRollback(p)
 
       case 'thread/fork':
         return this.handleThreadFork(p)
@@ -246,6 +246,33 @@ export class ClaudeAdapter {
       ? prompt.slice(0, 50).trim() + '...'
       : prompt.trim()
     return { title: title || 'New conversation' }
+  }
+
+  private async handleThreadRollback(params: RpcParams) {
+    const threadId = params.threadId as string
+    const numTurns = typeof params.numTurns === 'number' ? params.numTurns : 1
+
+    // Read all messages, build turns, then truncate
+    const messages = await getSessionMessages(threadId, {})
+    const allTurns = this.messagesToTurns(messages)
+    const keepCount = Math.max(0, allTurns.length - numTurns)
+    const turns = allTurns.slice(0, keepCount)
+
+    return {
+      thread: {
+        id: threadId,
+        preview: '',
+        modelProvider: 'anthropic',
+        createdAt: 0,
+        updatedAt: 0,
+        path: null,
+        cwd: '',
+        cliVersion: '',
+        source: 'claude-adapter',
+        gitInfo: null,
+        turns,
+      },
+    }
   }
 
   private async handleThreadRead(params: RpcParams) {

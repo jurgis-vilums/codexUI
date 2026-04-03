@@ -573,6 +573,30 @@ describe('ClaudeAdapter', () => {
     })
   })
 
+  describe('thread/rollback', () => {
+    it('returns truncated turns when rolling back', async () => {
+      const sessionId = 'sess-rollback-001'
+
+      // 2 turns: user→assistant, user→assistant
+      vi.mocked(mockGetSessionMessages).mockResolvedValue([
+        { type: 'user', uuid: 'u1', session_id: sessionId, message: { role: 'user', content: 'First question' }, parent_tool_use_id: null },
+        { type: 'assistant', uuid: 'a1', session_id: sessionId, message: { role: 'assistant', content: [{ type: 'text', text: 'First answer' }] }, parent_tool_use_id: null },
+        { type: 'user', uuid: 'u2', session_id: sessionId, message: { role: 'user', content: 'Second question' }, parent_tool_use_id: null },
+        { type: 'assistant', uuid: 'a2', session_id: sessionId, message: { role: 'assistant', content: [{ type: 'text', text: 'Second answer' }] }, parent_tool_use_id: null },
+      ] as any)
+
+      // Rollback 1 turn — should keep only the first turn
+      const result = await adapter.rpc('thread/rollback', {
+        threadId: sessionId,
+        numTurns: 1,
+      }) as any
+
+      expect(result.thread.turns).toHaveLength(1)
+      expect(result.thread.turns[0].items[0].type).toBe('userMessage')
+      expect(result.thread.turns[0].items[1].text).toBe('First answer')
+    })
+  })
+
   describe('thread/fork', () => {
     it('calls forkSession and returns new thread id', async () => {
       vi.mocked(mockForkSession).mockResolvedValue({
