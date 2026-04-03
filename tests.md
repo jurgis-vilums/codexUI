@@ -322,3 +322,25 @@ This file tracks manual regression and feature verification steps.
 
 #### Rollback/Cleanup
 - No cleanup required.
+
+### Feature: Dark mode text contrast fix
+
+#### Prerequisites
+- App is running from this repository.
+- The app appearance is set to `Dark` in Settings, or the system theme resolves to dark mode.
+- Open any thread with assistant/user messages, links, inline code, or command output if available.
+
+#### Steps
+1. Open the app in dark mode.
+2. Open an existing thread and inspect assistant text, bold text, inline code, file links, and user message bubbles.
+3. If the thread includes command output, expand a command row and inspect the command label text.
+4. Open the sidebar settings panel and inspect the settings labels and values.
+5. Navigate between the home view and a thread view and confirm the header title remains readable.
+
+#### Expected Results
+- No dark blue or slate text appears against near-black backgrounds in dark mode.
+- Conversation text, links, inline code, command rows, header text, and sidebar settings remain clearly legible.
+- User message bubbles retain readable contrast against their dark background.
+
+#### Rollback/Cleanup
+- Restore the previous dark theme styles if the lighter text treatment is not desired.

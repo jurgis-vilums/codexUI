@@ -34,4 +34,12 @@ defineProps<{
 .content-leading {
   @apply flex items-center gap-1;
 }
+
+:global(:root.dark) .content-header {
+  @apply bg-zinc-950;
+}
+
+:global(:root.dark) .content-title {
+  @apply text-zinc-200;
+}
 </style>

@@ -165,4 +165,21 @@ function onResizeHandleMouseDown(event: MouseEvent): void {
 .drawer-leave-to .mobile-drawer {
   transform: translateX(-100%);
 }
+
+:global(:root.dark) .desktop-layout {
+  @apply bg-zinc-900 text-zinc-100;
+}
+
+:global(:root.dark) .desktop-sidebar,
+:global(:root.dark) .mobile-drawer {
+  @apply bg-zinc-900;
+}
+
+:global(:root.dark) .desktop-resize-handle {
+  @apply bg-zinc-700 hover:bg-zinc-600;
+}
+
+:global(:root.dark) .desktop-main {
+  @apply bg-zinc-950;
+}
 </style>

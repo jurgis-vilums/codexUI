@@ -1860,4 +1860,30 @@ async function submitFirstMessageForNewThread(
   @apply border-t border-zinc-100 px-3 py-2 text-[11px] text-zinc-500;
 }
 
+:global(:root.dark) .sidebar-settings-area {
+  @apply bg-zinc-900 border-zinc-700;
+}
+
+:global(:root.dark) .sidebar-settings-button {
+  @apply text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200;
+}
+
+:global(:root.dark) .sidebar-settings-panel {
+  @apply border-zinc-700 bg-zinc-800;
+}
+
+:global(:root.dark) .sidebar-settings-row {
+  @apply text-zinc-300 hover:bg-zinc-700;
+}
+
+:global(:root.dark) .sidebar-settings-row + .sidebar-settings-row,
+:global(:root.dark) .sidebar-settings-rate-limits,
+:global(:root.dark) .sidebar-settings-build-label {
+  @apply border-zinc-700;
+}
+
+:global(:root.dark) .sidebar-settings-language-dropdown :deep(.composer-dropdown-trigger) {
+  @apply border-zinc-600 bg-zinc-700 text-zinc-200;
+}
+
 </style>

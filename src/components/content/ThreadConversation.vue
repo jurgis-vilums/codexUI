@@ -1932,4 +1932,107 @@ onBeforeUnmount(() => {
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x;
 }
+
+:global(:root.dark) .conversation-loading,
+:global(:root.dark) .conversation-empty {
+  @apply text-zinc-500;
+}
+
+:global(:root.dark) .request-card {
+  @apply border-amber-700 bg-amber-900/30;
+}
+
+:global(:root.dark) .request-title,
+:global(:root.dark) .request-question-title,
+:global(:root.dark) .request-reason {
+  @apply text-amber-200;
+}
+
+:global(:root.dark) .request-meta,
+:global(:root.dark) .request-question-text {
+  @apply text-amber-400;
+}
+
+:global(:root.dark) .request-button {
+  @apply border-amber-700 bg-zinc-800 text-amber-200 hover:bg-zinc-700;
+}
+
+:global(:root.dark) .request-button-primary {
+  @apply border-amber-600 bg-amber-600 text-white hover:bg-amber-700;
+}
+
+:global(:root.dark) .request-select,
+:global(:root.dark) .request-input {
+  @apply border-amber-700 bg-zinc-800 text-amber-100 placeholder:text-amber-400;
+}
+
+:global(:root.dark) .live-overlay-label {
+  @apply text-zinc-400;
+}
+
+:global(:root.dark) .live-overlay-reasoning {
+  @apply text-zinc-500;
+}
+
+:global(:root.dark) .message-image-button {
+  @apply border-zinc-600 bg-zinc-800;
+}
+
+:global(:root.dark) .message-file-chip {
+  @apply border-zinc-600 bg-zinc-700 text-zinc-300;
+}
+
+:global(:root.dark) .message-text,
+:global(:root.dark) .worked-separator-text {
+  @apply text-zinc-200;
+}
+
+:global(:root.dark) .message-bold-text {
+  @apply text-zinc-100;
+}
+
+:global(:root.dark) .message-markdown-image,
+:global(:root.dark) .image-modal-image {
+  @apply bg-zinc-900;
+}
+
+:global(:root.dark) .message-inline-code {
+  @apply border-zinc-600 bg-zinc-700/60 text-zinc-200;
+}
+
+:global(:root.dark) .message-file-link {
+  @apply text-blue-400 hover:text-blue-300;
+}
+
+:global(:root.dark) .file-link-context-menu {
+  @apply border-zinc-700 bg-zinc-800;
+}
+
+:global(:root.dark) .file-link-context-menu-item {
+  @apply text-zinc-200 hover:bg-zinc-700;
+}
+
+:global(:root.dark) .message-card[data-role='user'] {
+  @apply bg-zinc-700;
+}
+
+:global(:root.dark) .worked-separator-line {
+  @apply bg-zinc-700;
+}
+
+:global(:root.dark) .image-modal-close {
+  @apply border-zinc-600 bg-zinc-800/95 text-zinc-100;
+}
+
+:global(:root.dark) .message-action-button {
+  @apply border-zinc-700 bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300 hover:border-zinc-600;
+}
+
+:global(:root.dark) .cmd-row {
+  @apply border-zinc-700 bg-zinc-800 hover:bg-zinc-700;
+}
+
+:global(:root.dark) .cmd-label {
+  @apply text-zinc-300;
+}
 </style>
