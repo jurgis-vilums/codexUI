@@ -1280,7 +1280,12 @@ function canRollbackMessage(message: UiMessage): boolean {
 
 function canCopyMessage(message: UiMessage): boolean {
   if (message.role !== 'user' && message.role !== 'assistant') return false
-  return message.text.trim().length > 0
+  if (!message.text.trim()) return false
+  // Only show copy on the last message of each turn
+  const idx = props.messages.indexOf(message)
+  const nextMsg = idx >= 0 ? props.messages[idx + 1] : undefined
+  if (nextMsg && nextMsg.turnIndex === message.turnIndex) return false
+  return true
 }
 
 function canShowMessageActions(message: UiMessage): boolean {
