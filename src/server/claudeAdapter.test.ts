@@ -330,6 +330,70 @@ describe('ClaudeAdapter', () => {
       expect(turn.items[3].changes[0].filePath).toBe('/src/app.ts')
     })
 
+    it('bundles all assistant messages between user prompts into one turn', async () => {
+      // Real structure from Claude session: user → thinking → tool_use → tool_result → tool_use → tool_result → text
+      const sessionId = 'sess-bundle-001'
+
+      // Real structure: user content is a string, not array
+      vi.mocked(mockGetSessionMessages).mockResolvedValue([
+        {
+          type: 'user', uuid: 'u1', session_id: sessionId,
+          message: { role: 'user', content: 'do we have local worktree of 14920 branch?' },
+          parent_tool_use_id: null,
+        },
+        {
+          type: 'assistant', uuid: 'a1', session_id: sessionId,
+          message: { role: 'assistant', content: [{ type: 'thinking' }] },
+          parent_tool_use_id: null,
+        },
+        {
+          type: 'assistant', uuid: 'a2', session_id: sessionId,
+          message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu1', name: 'Bash', input: { command: 'ls /dev' } }] },
+          parent_tool_use_id: null,
+        },
+        {
+          type: 'user', uuid: 'tr1', session_id: sessionId,
+          message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu1' }] },
+          parent_tool_use_id: null,
+        },
+        {
+          type: 'assistant', uuid: 'a3', session_id: sessionId,
+          message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu2', name: 'Bash', input: { command: 'find . -name "*.git"' } }] },
+          parent_tool_use_id: null,
+        },
+        {
+          type: 'user', uuid: 'tr2', session_id: sessionId,
+          message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu2' }] },
+          parent_tool_use_id: null,
+        },
+        {
+          type: 'assistant', uuid: 'a4', session_id: sessionId,
+          message: { role: 'assistant', content: [{ type: 'text', text: 'No local worktree found.' }] },
+          parent_tool_use_id: null,
+        },
+      ] as any)
+
+      const result = await adapter.rpc('thread/read', {
+        threadId: sessionId,
+        includeTurns: true,
+      }) as any
+
+      // Should be exactly 1 turn with all items bundled
+      expect(result.thread.turns).toHaveLength(1)
+
+      const turn = result.thread.turns[0]
+      // userMessage + commandExecution(ls) + commandExecution(find) + agentMessage(text) = 4 items
+      expect(turn.items).toHaveLength(4)
+      expect(turn.items[0].type).toBe('userMessage')
+      expect(turn.items[0].content[0].text).toBe('do we have local worktree of 14920 branch?')
+      expect(turn.items[1].type).toBe('commandExecution')
+      expect(turn.items[1].command).toBe('ls /dev')
+      expect(turn.items[2].type).toBe('commandExecution')
+      expect(turn.items[2].command).toBe('find . -name "*.git"')
+      expect(turn.items[3].type).toBe('agentMessage')
+      expect(turn.items[3].text).toBe('No local worktree found.')
+    })
+
     it('returns empty turns when includeTurns is false', async () => {
       vi.mocked(mockGetSessionMessages).mockResolvedValue([])
 

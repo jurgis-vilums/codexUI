@@ -450,11 +450,21 @@ export class ClaudeAdapter {
     let turnIndex = 0
 
     for (const msg of messages) {
-      // Skip tool_result messages (they're user messages with parent_tool_use_id)
-      if (msg.parent_tool_use_id) continue
+      // Skip tool_result messages — user messages whose content is only tool_result blocks
+      if (msg.type === 'user') {
+        const content = (msg.message as any)?.content
+        if (msg.parent_tool_use_id) continue
+        if (Array.isArray(content) && content.length > 0 && content.every((c: any) => c.type === 'tool_result')) continue
+      }
+
+      // Skip thinking blocks
+      if (msg.type === 'assistant') {
+        const content = (msg.message as any)?.content
+        if (Array.isArray(content) && content.length > 0 && content.every((c: any) => c.type === 'thinking')) continue
+      }
 
       if (msg.type === 'user') {
-        // A user message starts a new turn if we have accumulated items
+        // A real user message starts a new turn
         if (currentItems.length > 0) {
           turns.push({
             id: `turn-${turnIndex}`,
@@ -466,15 +476,24 @@ export class ClaudeAdapter {
           currentItems = []
         }
 
-        const content = (msg.message as any)?.content
-        const textParts = Array.isArray(content)
-          ? content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n')
-          : ''
+        const rawContent = (msg.message as any)?.content
+        const text = typeof rawContent === 'string'
+          ? rawContent
+          : Array.isArray(rawContent)
+            ? rawContent.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n')
+            : ''
+        const content = typeof rawContent === 'string'
+          ? [{ type: 'text', text: rawContent }]
+          : Array.isArray(rawContent)
+            ? rawContent
+            : [{ type: 'text', text: '' }]
+
+        if (!text) continue // Skip empty user messages
 
         currentItems.push({
           type: 'userMessage',
           id: msg.uuid,
-          content: Array.isArray(content) ? content : [{ type: 'text', text: textParts }],
+          content,
         })
       } else if (msg.type === 'assistant') {
         const content = (msg.message as any)?.content
