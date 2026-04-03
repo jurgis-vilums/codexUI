@@ -545,4 +545,202 @@ describe('ClaudeAdapter', () => {
       expect(result.title.length).toBeGreaterThan(0)
     })
   })
+
+  describe('streaming deltas', () => {
+    it('emits item/agentMessage/delta for partial text blocks', async () => {
+      const threadId = 'sess-stream-001'
+
+      // Set up session
+      const initQ = (async function* () {
+        yield {
+          type: 'system', subtype: 'init', session_id: threadId,
+          cwd: '/project', model: 'claude-opus-4-1',
+          tools: [], mcp_servers: [], permissionMode: 'bypassPermissions',
+          slash_commands: [], skills: [], output_style: 'concise', plugins: [],
+          uuid: '00000000-0000-0000-0000-000000000050',
+          claude_code_version: '1.0.0', apiKeySource: 'user',
+        }
+      })()
+      vi.mocked(mockQuery).mockReturnValueOnce(initQ as any)
+      await adapter.rpc('thread/start', { cwd: '/project' })
+
+      // Turn query with stream_event (partial messages)
+      const turnQ = (async function* () {
+        yield {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+          parent_tool_use_id: null,
+          uuid: '00000000-0000-0000-0000-000000000051',
+          session_id: threadId,
+        }
+        yield {
+          type: 'stream_event',
+          event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello ' } },
+          parent_tool_use_id: null,
+          uuid: '00000000-0000-0000-0000-000000000051',
+          session_id: threadId,
+        }
+        yield {
+          type: 'stream_event',
+          event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'world!' } },
+          parent_tool_use_id: null,
+          uuid: '00000000-0000-0000-0000-000000000051',
+          session_id: threadId,
+        }
+        yield {
+          type: 'stream_event',
+          event: { type: 'content_block_stop', index: 0 },
+          parent_tool_use_id: null,
+          uuid: '00000000-0000-0000-0000-000000000051',
+          session_id: threadId,
+        }
+        yield {
+          type: 'result', subtype: 'success', session_id: threadId,
+          uuid: '00000000-0000-0000-0000-000000000052',
+          result: 'Hello world!', duration_ms: 100, duration_api_ms: 80,
+          is_error: false, num_turns: 1, stop_reason: 'end_turn',
+          total_cost_usd: 0.01, usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          modelUsage: {}, permission_denials: [],
+        }
+      })()
+      vi.mocked(mockQuery).mockReturnValueOnce(turnQ as any)
+
+      const notifications: Array<{ method: string; params: unknown }> = []
+      adapter.onNotification((n) => notifications.push(n))
+
+      await adapter.rpc('turn/start', {
+        threadId,
+        input: [{ type: 'text', text: 'Say hello' }],
+      })
+
+      const deltas = notifications.filter(n => n.method === 'item/agentMessage/delta')
+      expect(deltas).toHaveLength(2)
+      expect((deltas[0].params as any).delta).toBe('Hello ')
+      expect((deltas[1].params as any).delta).toBe('world!')
+    })
+  })
+
+  describe('tool use rendering', () => {
+    it('emits commandExecution items for Bash tool_use blocks', async () => {
+      const threadId = 'sess-tool-001'
+
+      // Set up session
+      const initQ = (async function* () {
+        yield {
+          type: 'system', subtype: 'init', session_id: threadId,
+          cwd: '/project', model: 'claude-opus-4-1',
+          tools: [], mcp_servers: [], permissionMode: 'bypassPermissions',
+          slash_commands: [], skills: [], output_style: 'concise', plugins: [],
+          uuid: '00000000-0000-0000-0000-000000000060',
+          claude_code_version: '1.0.0', apiKeySource: 'user',
+        }
+      })()
+      vi.mocked(mockQuery).mockReturnValueOnce(initQ as any)
+      await adapter.rpc('thread/start', { cwd: '/project' })
+
+      // Turn with assistant message containing tool_use for Bash
+      const turnQ = (async function* () {
+        yield {
+          type: 'assistant',
+          uuid: 'tool-turn-001',
+          session_id: threadId,
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'text', text: 'Let me check the files.' },
+              { type: 'tool_use', id: 'tu_001', name: 'Bash', input: { command: 'ls -la', description: 'List files' } },
+            ],
+            stop_reason: 'tool_use',
+          },
+          parent_tool_use_id: null,
+        }
+        yield {
+          type: 'result', subtype: 'success', session_id: threadId,
+          uuid: '00000000-0000-0000-0000-000000000062',
+          result: '', duration_ms: 200, duration_api_ms: 150,
+          is_error: false, num_turns: 1, stop_reason: 'tool_use',
+          total_cost_usd: 0.02, usage: { input_tokens: 50, output_tokens: 30, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          modelUsage: {}, permission_denials: [],
+        }
+      })()
+      vi.mocked(mockQuery).mockReturnValueOnce(turnQ as any)
+
+      const notifications: Array<{ method: string; params: unknown }> = []
+      adapter.onNotification((n) => notifications.push(n))
+
+      await adapter.rpc('turn/start', {
+        threadId,
+        input: [{ type: 'text', text: 'List files' }],
+      })
+
+      // Should have agentMessage item for the text
+      const agentItems = notifications.filter(n =>
+        n.method === 'item/started' && (n.params as any).item.type === 'agentMessage'
+      )
+      expect(agentItems.length).toBeGreaterThanOrEqual(1)
+
+      // Should have commandExecution item for the Bash tool_use
+      const cmdItems = notifications.filter(n =>
+        n.method === 'item/started' && (n.params as any).item.type === 'commandExecution'
+      )
+      expect(cmdItems).toHaveLength(1)
+      expect((cmdItems[0].params as any).item.command).toBe('ls -la')
+    })
+
+    it('emits fileChange items for Edit tool_use blocks', async () => {
+      const threadId = 'sess-tool-002'
+
+      const initQ = (async function* () {
+        yield {
+          type: 'system', subtype: 'init', session_id: threadId,
+          cwd: '/project', model: 'claude-opus-4-1',
+          tools: [], mcp_servers: [], permissionMode: 'bypassPermissions',
+          slash_commands: [], skills: [], output_style: 'concise', plugins: [],
+          uuid: '00000000-0000-0000-0000-000000000070',
+          claude_code_version: '1.0.0', apiKeySource: 'user',
+        }
+      })()
+      vi.mocked(mockQuery).mockReturnValueOnce(initQ as any)
+      await adapter.rpc('thread/start', { cwd: '/project' })
+
+      const turnQ = (async function* () {
+        yield {
+          type: 'assistant',
+          uuid: 'tool-turn-002',
+          session_id: threadId,
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'tu_002', name: 'Edit', input: { file_path: '/project/src/index.ts', old_string: 'foo', new_string: 'bar' } },
+            ],
+            stop_reason: 'tool_use',
+          },
+          parent_tool_use_id: null,
+        }
+        yield {
+          type: 'result', subtype: 'success', session_id: threadId,
+          uuid: '00000000-0000-0000-0000-000000000072',
+          result: '', duration_ms: 100, duration_api_ms: 80,
+          is_error: false, num_turns: 1, stop_reason: 'tool_use',
+          total_cost_usd: 0.01, usage: { input_tokens: 30, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          modelUsage: {}, permission_denials: [],
+        }
+      })()
+      vi.mocked(mockQuery).mockReturnValueOnce(turnQ as any)
+
+      const notifications: Array<{ method: string; params: unknown }> = []
+      adapter.onNotification((n) => notifications.push(n))
+
+      await adapter.rpc('turn/start', {
+        threadId,
+        input: [{ type: 'text', text: 'Fix the typo' }],
+      })
+
+      const fileItems = notifications.filter(n =>
+        n.method === 'item/started' && (n.params as any).item.type === 'fileChange'
+      )
+      expect(fileItems).toHaveLength(1)
+      expect((fileItems[0].params as any).item.changes[0].filePath).toBe('/project/src/index.ts')
+    })
+  })
 })

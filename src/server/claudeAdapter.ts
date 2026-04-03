@@ -285,6 +285,7 @@ export class ClaudeAdapter {
         cwd,
         resume: threadId,
         permissionMode: 'bypassPermissions',
+        includePartialMessages: true,
         abortController,
       },
     })
@@ -321,31 +322,54 @@ export class ClaudeAdapter {
   }
 
   private async processStream(threadId: string, turnId: string, q: AsyncIterable<SDKMessage>) {
+    // Track active text block for streaming deltas
+    let activeTextItemId: string | null = null
+
     try {
       for await (const msg of q) {
-        if (msg.type === 'assistant') {
-          const content = (msg as any).message?.content
-          const text = Array.isArray(content)
-            ? content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n')
-            : ''
+        if (msg.type === 'stream_event') {
+          const event = (msg as any).event
+          const uuid = (msg as any).uuid ?? `item-${Date.now()}`
 
-          const item = {
-            type: 'agentMessage',
-            id: (msg as any).uuid ?? `item-${Date.now()}`,
-            text,
+          if (event?.type === 'content_block_start' && event.content_block?.type === 'text') {
+            activeTextItemId = uuid
+            this.emitNotification('item/started', {
+              item: { type: 'agentMessage', id: uuid, text: '' },
+              threadId,
+              turnId,
+            })
+          } else if (event?.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+            this.emitNotification('item/agentMessage/delta', {
+              threadId,
+              turnId,
+              itemId: activeTextItemId ?? uuid,
+              delta: event.delta.text,
+            })
+          } else if (event?.type === 'content_block_stop' && activeTextItemId) {
+            this.emitNotification('item/completed', {
+              item: { type: 'agentMessage', id: activeTextItemId, text: '' },
+              threadId,
+              turnId,
+            })
+            activeTextItemId = null
           }
+        } else if (msg.type === 'assistant') {
+          const content = (msg as any).message?.content
+          if (!Array.isArray(content)) continue
 
-          this.emitNotification('item/started', {
-            item,
-            threadId,
-            turnId,
-          })
-
-          this.emitNotification('item/completed', {
-            item,
-            threadId,
-            turnId,
-          })
+          for (const block of content) {
+            if (block.type === 'text' && block.text) {
+              const item = {
+                type: 'agentMessage',
+                id: (msg as any).uuid ?? `item-${Date.now()}`,
+                text: block.text,
+              }
+              this.emitNotification('item/started', { item, threadId, turnId })
+              this.emitNotification('item/completed', { item, threadId, turnId })
+            } else if (block.type === 'tool_use') {
+              this.emitToolUseItem(block, threadId, turnId)
+            }
+          }
         }
 
         if (msg.type === 'result') {
@@ -357,6 +381,57 @@ export class ClaudeAdapter {
         threadId,
         turn: { id: turnId, status: 'completed', items: [], error: null },
       })
+    }
+  }
+
+  private emitToolUseItem(block: any, threadId: string, turnId: string) {
+    const toolName: string = block.name ?? ''
+    const input = block.input ?? {}
+    const id = block.id ?? `tool-${Date.now()}`
+
+    if (toolName === 'Bash') {
+      const item = {
+        type: 'commandExecution',
+        id,
+        command: input.command ?? '',
+        cwd: input.cwd ?? '',
+        processId: null,
+        status: 'completed',
+        commandActions: [],
+        aggregatedOutput: null,
+        exitCode: null,
+        durationMs: null,
+      }
+      this.emitNotification('item/started', { item, threadId, turnId })
+      this.emitNotification('item/completed', { item, threadId, turnId })
+    } else if (toolName === 'Edit' || toolName === 'Write') {
+      const item = {
+        type: 'fileChange',
+        id,
+        changes: [{
+          filePath: input.file_path ?? '',
+          oldString: input.old_string ?? '',
+          newString: input.new_string ?? input.content ?? '',
+        }],
+        status: 'completed',
+      }
+      this.emitNotification('item/started', { item, threadId, turnId })
+      this.emitNotification('item/completed', { item, threadId, turnId })
+    } else {
+      // Other tools (Read, Grep, Glob, etc.) — emit as generic tool call
+      const item = {
+        type: 'mcpToolCall',
+        id,
+        server: 'claude',
+        tool: toolName,
+        status: 'completed',
+        arguments: input,
+        result: null,
+        error: null,
+        durationMs: null,
+      }
+      this.emitNotification('item/started', { item, threadId, turnId })
+      this.emitNotification('item/completed', { item, threadId, turnId })
     }
   }
 
