@@ -277,6 +277,59 @@ describe('ClaudeAdapter', () => {
       expect(turn2.items[1].text).toBe('Generics allow you to write reusable code...')
     })
 
+    it('reconstructs tool_use blocks as commandExecution and fileChange items', async () => {
+      const sessionId = 'sess-read-tools'
+
+      vi.mocked(mockGetSessionMessages).mockResolvedValue([
+        {
+          type: 'user',
+          uuid: 'msg-u1',
+          session_id: sessionId,
+          message: { role: 'user', content: [{ type: 'text', text: 'List files and fix typo' }] },
+          parent_tool_use_id: null,
+        },
+        {
+          type: 'assistant',
+          uuid: 'msg-a1',
+          session_id: sessionId,
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'text', text: 'Let me check the files.' },
+              { type: 'tool_use', id: 'tu_001', name: 'Bash', input: { command: 'ls -la' } },
+              { type: 'tool_use', id: 'tu_002', name: 'Edit', input: { file_path: '/src/app.ts', old_string: 'foo', new_string: 'bar' } },
+            ],
+            stop_reason: 'tool_use',
+          },
+          parent_tool_use_id: null,
+        },
+        // tool_result messages should be skipped
+        {
+          type: 'user',
+          uuid: 'msg-tr1',
+          session_id: sessionId,
+          message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu_001', content: 'file1.ts\nfile2.ts' }] },
+          parent_tool_use_id: 'tu_001',
+        },
+      ])
+
+      const result = await adapter.rpc('thread/read', {
+        threadId: sessionId,
+        includeTurns: true,
+      }) as any
+
+      const turn = result.thread.turns[0]
+      // userMessage + agentMessage + commandExecution + fileChange = 4 items
+      expect(turn.items).toHaveLength(4)
+      expect(turn.items[0].type).toBe('userMessage')
+      expect(turn.items[1].type).toBe('agentMessage')
+      expect(turn.items[1].text).toBe('Let me check the files.')
+      expect(turn.items[2].type).toBe('commandExecution')
+      expect(turn.items[2].command).toBe('ls -la')
+      expect(turn.items[3].type).toBe('fileChange')
+      expect(turn.items[3].changes[0].filePath).toBe('/src/app.ts')
+    })
+
     it('returns empty turns when includeTurns is false', async () => {
       vi.mocked(mockGetSessionMessages).mockResolvedValue([])
 

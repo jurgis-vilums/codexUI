@@ -450,6 +450,9 @@ export class ClaudeAdapter {
     let turnIndex = 0
 
     for (const msg of messages) {
+      // Skip tool_result messages (they're user messages with parent_tool_use_id)
+      if (msg.parent_tool_use_id) continue
+
       if (msg.type === 'user') {
         // A user message starts a new turn if we have accumulated items
         if (currentItems.length > 0) {
@@ -475,15 +478,63 @@ export class ClaudeAdapter {
         })
       } else if (msg.type === 'assistant') {
         const content = (msg.message as any)?.content
-        const textParts = Array.isArray(content)
-          ? content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n')
-          : ''
+        if (!Array.isArray(content)) continue
 
-        currentItems.push({
-          type: 'agentMessage',
-          id: msg.uuid,
-          text: textParts,
-        })
+        // Extract text blocks as agentMessage
+        const textParts = content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n')
+        if (textParts) {
+          currentItems.push({
+            type: 'agentMessage',
+            id: msg.uuid,
+            text: textParts,
+          })
+        }
+
+        // Extract tool_use blocks as typed items
+        for (const block of content) {
+          if (block.type !== 'tool_use') continue
+          const toolName: string = block.name ?? ''
+          const input = block.input ?? {}
+          const toolId = block.id ?? `tool-${Date.now()}`
+
+          if (toolName === 'Bash') {
+            currentItems.push({
+              type: 'commandExecution',
+              id: toolId,
+              command: input.command ?? '',
+              cwd: input.cwd ?? '',
+              processId: null,
+              status: 'completed',
+              commandActions: [],
+              aggregatedOutput: null,
+              exitCode: null,
+              durationMs: null,
+            })
+          } else if (toolName === 'Edit' || toolName === 'Write') {
+            currentItems.push({
+              type: 'fileChange',
+              id: toolId,
+              changes: [{
+                filePath: input.file_path ?? '',
+                oldString: input.old_string ?? '',
+                newString: input.new_string ?? input.content ?? '',
+              }],
+              status: 'completed',
+            })
+          } else {
+            currentItems.push({
+              type: 'mcpToolCall',
+              id: toolId,
+              server: 'claude',
+              tool: toolName,
+              status: 'completed',
+              arguments: input,
+              result: null,
+              error: null,
+              durationMs: null,
+            })
+          }
+        }
       }
     }
 
