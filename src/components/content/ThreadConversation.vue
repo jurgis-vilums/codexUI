@@ -1727,11 +1727,11 @@ onBeforeUnmount(() => {
 }
 
 .message-text {
-  @apply m-0 text-sm leading-relaxed whitespace-pre-wrap text-slate-800;
+  @apply m-0 text-sm leading-relaxed whitespace-pre-wrap text-slate-800 dark:text-zinc-200;
 }
 
 .message-bold-text {
-  @apply font-semibold text-slate-900;
+  @apply font-semibold text-slate-900 dark:text-zinc-100;
 }
 
 .message-markdown-image {
@@ -1806,7 +1806,7 @@ onBeforeUnmount(() => {
 }
 
 .worked-separator-text {
-  @apply m-0 text-sm leading-relaxed font-normal text-slate-800;
+  @apply m-0 text-sm leading-relaxed font-normal text-slate-800 dark:text-zinc-200;
 }
 
 .worked-details {
