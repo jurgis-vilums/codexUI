@@ -252,15 +252,50 @@ export class ClaudeAdapter {
     const threadId = params.threadId as string
     const numTurns = typeof params.numTurns === 'number' ? params.numTurns : 1
 
-    // Read all messages, build turns, then truncate
+    // Find the UUID of the last message before the rollback point.
+    // Walk raw messages, count real user messages (= turn boundaries),
+    // and track the last UUID before the Nth-from-end turn starts.
     const messages = await getSessionMessages(threadId, {})
-    const allTurns = this.messagesToTurns(messages)
-    const keepCount = Math.max(0, allTurns.length - numTurns)
-    const turns = allTurns.slice(0, keepCount)
+
+    // Find turn boundary UUIDs — each real user message starts a turn
+    const turnStartIndices: number[] = []
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i]
+      if (msg.type !== 'user') continue
+      if (msg.parent_tool_use_id) continue
+      const content = (msg.message as any)?.content
+      if (Array.isArray(content) && content.every((c: any) => c.type === 'tool_result')) continue
+      turnStartIndices.push(i)
+    }
+
+    const totalTurns = turnStartIndices.length
+    const keepCount = Math.max(0, totalTurns - numTurns)
+
+    if (keepCount <= 0) {
+      // Rolling back everything — just create a new empty thread
+      return this.handleThreadStart({ cwd: process.cwd() })
+    }
+
+    // The fork point is the last message before the turn we're removing
+    const cutoffMsgIndex = turnStartIndices[keepCount]
+    // Find the last message UUID before this cutoff (the previous message)
+    const forkAtUuid = messages[cutoffMsgIndex - 1]?.uuid
+
+    if (!forkAtUuid) {
+      return this.handleThreadStart({ cwd: process.cwd() })
+    }
+
+    // Fork the session at this point
+    const result = await forkSession(threadId, { upToMessageId: forkAtUuid })
+    const newThreadId = result.sessionId
+
+    // Read the forked session's messages and return as the new thread
+    const forkedMessages = await getSessionMessages(newThreadId, {})
+    const turns = this.messagesToTurns(forkedMessages)
 
     return {
       thread: {
-        id: threadId,
+        id: newThreadId,
         preview: '',
         modelProvider: 'anthropic',
         createdAt: 0,

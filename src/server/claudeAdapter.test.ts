@@ -574,25 +574,36 @@ describe('ClaudeAdapter', () => {
   })
 
   describe('thread/rollback', () => {
-    it('returns truncated turns when rolling back', async () => {
+    it('forks session at the rollback point and returns new thread', async () => {
       const sessionId = 'sess-rollback-001'
+      const forkedId = 'sess-forked-rollback'
 
       // 2 turns: user→assistant, user→assistant
-      vi.mocked(mockGetSessionMessages).mockResolvedValue([
-        { type: 'user', uuid: 'u1', session_id: sessionId, message: { role: 'user', content: 'First question' }, parent_tool_use_id: null },
-        { type: 'assistant', uuid: 'a1', session_id: sessionId, message: { role: 'assistant', content: [{ type: 'text', text: 'First answer' }] }, parent_tool_use_id: null },
-        { type: 'user', uuid: 'u2', session_id: sessionId, message: { role: 'user', content: 'Second question' }, parent_tool_use_id: null },
-        { type: 'assistant', uuid: 'a2', session_id: sessionId, message: { role: 'assistant', content: [{ type: 'text', text: 'Second answer' }] }, parent_tool_use_id: null },
-      ] as any)
+      vi.mocked(mockGetSessionMessages)
+        .mockResolvedValueOnce([ // First call: read original to find fork point
+          { type: 'user', uuid: 'u1', session_id: sessionId, message: { role: 'user', content: 'First question' }, parent_tool_use_id: null },
+          { type: 'assistant', uuid: 'a1', session_id: sessionId, message: { role: 'assistant', content: [{ type: 'text', text: 'First answer' }] }, parent_tool_use_id: null },
+          { type: 'user', uuid: 'u2', session_id: sessionId, message: { role: 'user', content: 'Second question' }, parent_tool_use_id: null },
+          { type: 'assistant', uuid: 'a2', session_id: sessionId, message: { role: 'assistant', content: [{ type: 'text', text: 'Second answer' }] }, parent_tool_use_id: null },
+        ] as any)
+        .mockResolvedValueOnce([ // Second call: read forked session
+          { type: 'user', uuid: 'u1', session_id: forkedId, message: { role: 'user', content: 'First question' }, parent_tool_use_id: null },
+          { type: 'assistant', uuid: 'a1', session_id: forkedId, message: { role: 'assistant', content: [{ type: 'text', text: 'First answer' }] }, parent_tool_use_id: null },
+        ] as any)
 
-      // Rollback 1 turn — should keep only the first turn
+      vi.mocked(mockForkSession).mockResolvedValue({ sessionId: forkedId, title: 'Fork' })
+
       const result = await adapter.rpc('thread/rollback', {
         threadId: sessionId,
         numTurns: 1,
       }) as any
 
+      // Should have forked at the last message before turn 2 (= 'a1')
+      expect(mockForkSession).toHaveBeenCalledWith(sessionId, { upToMessageId: 'a1' })
+
+      // Should return the forked session
+      expect(result.thread.id).toBe(forkedId)
       expect(result.thread.turns).toHaveLength(1)
-      expect(result.thread.turns[0].items[0].type).toBe('userMessage')
       expect(result.thread.turns[0].items[1].text).toBe('First answer')
     })
   })
