@@ -2662,18 +2662,28 @@ export function useDesktopState() {
     error.value = ''
     try {
       await rollbackWorktreeGitToTurnMessage(threadId, turnIndex)
-      const nextMessages = await rollbackThread(threadId, numTurns)
-      setPersistedMessagesForThread(threadId, nextMessages)
-      setLiveAgentMessagesForThread(threadId, [])
-      clearLiveReasoningForThread(threadId)
-      if (liveCommandsByThreadId.value[threadId]) {
-        liveCommandsByThreadId.value = omitKey(liveCommandsByThreadId.value, threadId)
+      const { messages: nextMessages, newThreadId } = await rollbackThread(threadId, numTurns)
+
+      if (newThreadId) {
+        // Backend forked to a new thread (Claude mode) — navigate to it
+        setPersistedMessagesForThread(newThreadId, nextMessages)
+        selectedThreadId.value = newThreadId
+        pendingThreadsRefresh = true
+        await syncFromNotifications()
+      } else {
+        // Backend truncated in place (Codex mode)
+        setPersistedMessagesForThread(threadId, nextMessages)
+        setLiveAgentMessagesForThread(threadId, [])
+        clearLiveReasoningForThread(threadId)
+        if (liveCommandsByThreadId.value[threadId]) {
+          liveCommandsByThreadId.value = omitKey(liveCommandsByThreadId.value, threadId)
+        }
+        setTurnSummaryForThread(threadId, null)
+        setTurnActivityForThread(threadId, null)
+        setTurnErrorForThread(threadId, null)
+        pendingThreadsRefresh = true
+        await syncFromNotifications()
       }
-      setTurnSummaryForThread(threadId, null)
-      setTurnActivityForThread(threadId, null)
-      setTurnErrorForThread(threadId, null)
-      pendingThreadsRefresh = true
-      await syncFromNotifications()
     } catch (unknownError) {
       error.value = unknownError instanceof Error ? unknownError.message : 'Failed to rollback thread'
     } finally {

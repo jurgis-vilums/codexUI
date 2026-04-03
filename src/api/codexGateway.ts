@@ -223,9 +223,11 @@ export async function renameThread(threadId: string, threadName: string): Promis
   await callRpc('thread/name/set', { threadId, name: threadName })
 }
 
-export async function rollbackThread(threadId: string, numTurns: number): Promise<UiMessage[]> {
+export async function rollbackThread(threadId: string, numTurns: number): Promise<{ messages: UiMessage[]; newThreadId?: string }> {
   const payload = await callRpc<ThreadReadResponse>('thread/rollback', { threadId, numTurns })
-  return normalizeThreadMessagesV2(payload)
+  const messages = normalizeThreadMessagesV2(payload)
+  const newId = payload.thread?.id
+  return { messages, newThreadId: newId !== threadId ? newId : undefined }
 }
 
 function normalizeThreadIdFromPayload(payload: unknown): string {
