@@ -78,6 +78,27 @@ describe('ClaudeAdapter', () => {
     })
   })
 
+  describe('auth/status', () => {
+    it('returns authenticated state after successful initialize', async () => {
+      vi.mocked(mockListSessions).mockResolvedValue([])
+      await adapter.rpc('initialize', { clientInfo: { name: 'test', version: '0.1.0' } })
+
+      const result = await adapter.rpc('auth/status', {}) as any
+      expect(result.authenticated).toBe(true)
+      expect(result.backend).toBe('claude')
+    })
+
+    it('returns unauthenticated state with login command', async () => {
+      vi.mocked(mockListSessions).mockRejectedValue(new Error('Token expired'))
+      await adapter.rpc('initialize', { clientInfo: { name: 'test', version: '0.1.0' } })
+
+      const result = await adapter.rpc('auth/status', {}) as any
+      expect(result.authenticated).toBe(false)
+      expect(result.loginCommand).toBeDefined()
+      expect(typeof result.loginCommand).toBe('string')
+    })
+  })
+
   describe('thread/list', () => {
     it('translates listSessions response to ThreadListResponse shape', async () => {
       const mockSessions = [

@@ -147,6 +147,11 @@
           </template>
         </ContentHeader>
 
+        <div v-if="authBanner" class="auth-banner">
+          <span class="auth-banner-text">{{ authBanner.message }}</span>
+          <code v-if="authBanner.command" class="auth-banner-command">{{ authBanner.command }}</code>
+        </div>
+
         <section class="content-body">
           <template v-if="isSkillsRoute">
             <SkillsHub @skills-changed="onSkillsChanged" />
@@ -304,7 +309,7 @@ import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vu
 import IconTablerSearch from './components/icons/IconTablerSearch.vue'
 import IconTablerSettings from './components/icons/IconTablerSettings.vue'
 import IconTablerX from './components/icons/IconTablerX.vue'
-import { setActiveBackend } from './api/codexRpcClient'
+import { setActiveBackend, rpcCall } from './api/codexRpcClient'
 import { useDesktopState } from './composables/useDesktopState'
 import { useMobile } from './composables/useMobile'
 import {
@@ -496,6 +501,7 @@ const trendingProjects = ref<GithubTrendingProject[]>([])
 const isTrendingProjectsLoading = ref(false)
 const githubTipsScope = ref<GithubTipsScope>('trending-daily')
 const activeBackend = ref<'codex' | 'claude'>('codex')
+const authBanner = ref<{ message: string; command?: string } | null>(null)
 const editingQueuedMessageState = ref<{ threadId: string; queueIndex: number } | null>(null)
 const isRouteSyncInProgress = ref(false)
 const hasInitialized = ref(false)
@@ -705,6 +711,7 @@ async function onToggleBackend(): Promise<void> {
   const next = activeBackend.value === 'codex' ? 'claude' : 'codex'
   activeBackend.value = next
   setActiveBackend(next)
+  authBanner.value = null
 
   // Clear selected thread (messages computed will auto-clear)
   selectedThreadId.value = ''
@@ -715,6 +722,21 @@ async function onToggleBackend(): Promise<void> {
 
   // Reload thread list from new backend
   await refreshAll()
+
+  // Check auth status for Claude backend
+  if (next === 'claude') {
+    try {
+      const status = await rpcCall<{ authenticated: boolean; loginCommand?: string }>('auth/status')
+      if (!status.authenticated) {
+        authBanner.value = {
+          message: 'Claude is not authenticated.',
+          command: status.loginCommand ?? 'claude login',
+        }
+      }
+    } catch {
+      // auth/status not available — ignore
+    }
+  }
 }
 
 async function refreshTelegramStatus(): Promise<void> {
@@ -1667,6 +1689,22 @@ async function submitFirstMessageForNewThread(
 
 .content-error {
   @apply m-0 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700;
+}
+
+.auth-banner {
+  @apply mx-3 mt-1 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800;
+}
+
+.auth-banner-command {
+  @apply rounded bg-amber-100 px-1.5 py-0.5 font-mono text-xs text-amber-900;
+}
+
+:global(:root.dark) .auth-banner {
+  @apply border-amber-700/50 bg-amber-900/30 text-amber-200;
+}
+
+:global(:root.dark) .auth-banner-command {
+  @apply bg-amber-800/50 text-amber-100;
 }
 
 .content-grid {

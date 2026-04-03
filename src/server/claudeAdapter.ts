@@ -36,6 +36,13 @@ export class ClaudeAdapter {
         }
       }
 
+      case 'auth/status':
+        return {
+          backend: 'claude',
+          authenticated: this.authenticated,
+          loginCommand: this.authenticated ? null : 'claude login',
+        }
+
       case 'thread/list':
         return this.handleThreadList(p)
 
