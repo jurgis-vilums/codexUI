@@ -29,20 +29,43 @@ describe('ClaudeAdapter', () => {
   })
 
   describe('initialize', () => {
-    it('returns server info on initialize call', async () => {
+    it('returns server info and authenticated: true when listSessions succeeds', async () => {
+      vi.mocked(mockListSessions).mockResolvedValue([])
+
       const result = await adapter.rpc('initialize', {
         clientInfo: { name: 'codex-web-local', version: '0.1.0' },
-      })
+      }) as any
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         serverInfo: {
           name: 'claude-adapter',
           version: '0.1.0',
         },
+        authenticated: true,
+      })
+      expect(mockListSessions).toHaveBeenCalledWith({ limit: 1 })
+    })
+
+    it('returns authenticated: false and authError when listSessions throws', async () => {
+      vi.mocked(mockListSessions).mockRejectedValue(new Error('Invalid API key'))
+
+      const result = await adapter.rpc('initialize', {
+        clientInfo: { name: 'codex-web-local', version: '0.1.0' },
+      }) as any
+
+      expect(result).toMatchObject({
+        serverInfo: {
+          name: 'claude-adapter',
+          version: '0.1.0',
+        },
+        authenticated: false,
+        authError: 'Invalid API key',
       })
     })
 
     it('marks adapter as initialized after first call', async () => {
+      vi.mocked(mockListSessions).mockResolvedValue([])
+
       await adapter.rpc('initialize', {
         clientInfo: { name: 'codex-web-local', version: '0.1.0' },
       })

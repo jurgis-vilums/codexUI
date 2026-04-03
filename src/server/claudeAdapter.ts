@@ -6,6 +6,7 @@ type NotificationListener = (value: { method: string; params: unknown }) => void
 
 export class ClaudeAdapter {
   private initialized = false
+  private authenticated = false
   private defaultModel: string | undefined = undefined
   private activeSessions = new Map<string, { query: Query; abortController: AbortController }>()
   private notificationListeners = new Set<NotificationListener>()
@@ -14,11 +15,26 @@ export class ClaudeAdapter {
     const p = (params ?? {}) as RpcParams
 
     switch (method) {
-      case 'initialize':
+      case 'initialize': {
         this.initialized = true
-        return {
-          serverInfo: { name: 'claude-adapter', version: '0.1.0' },
+        try {
+          await listSessions({ limit: 1 })
+          this.authenticated = true
+          return {
+            serverInfo: { name: 'claude-adapter', version: '0.1.0' },
+            authenticated: true,
+          }
+        } catch (error) {
+          this.authenticated = false
+          const authError = error instanceof Error ? error.message : String(error)
+          console.warn(`[claude-adapter] auth check failed: ${authError}`)
+          return {
+            serverInfo: { name: 'claude-adapter', version: '0.1.0' },
+            authenticated: false,
+            authError,
+          }
         }
+      }
 
       case 'thread/list':
         return this.handleThreadList(p)
