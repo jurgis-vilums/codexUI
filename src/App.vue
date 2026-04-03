@@ -500,7 +500,8 @@ const threadComposerRef = ref<ThreadComposerExposed | null>(null)
 const trendingProjects = ref<GithubTrendingProject[]>([])
 const isTrendingProjectsLoading = ref(false)
 const githubTipsScope = ref<GithubTipsScope>('trending-daily')
-const activeBackend = ref<'codex' | 'claude'>('codex')
+const savedBackend = typeof localStorage !== 'undefined' ? localStorage.getItem('codexui-backend') : null
+const activeBackend = ref<'codex' | 'claude'>(savedBackend === 'claude' ? 'claude' : 'codex')
 const authBanner = ref<{ message: string; command?: string } | null>(null)
 const editingQueuedMessageState = ref<{ threadId: string; queueIndex: number } | null>(null)
 const isRouteSyncInProgress = ref(false)
@@ -711,6 +712,7 @@ async function onToggleBackend(): Promise<void> {
   const next = activeBackend.value === 'codex' ? 'claude' : 'codex'
   activeBackend.value = next
   setActiveBackend(next)
+  localStorage.setItem('codexui-backend', next)
   authBanner.value = null
 
   // Clear selected thread (messages computed will auto-clear)
@@ -1405,6 +1407,10 @@ function normalizeMessageType(rawType: string | undefined, role: string): string
 }
 
 async function initialize(): Promise<void> {
+  // Restore saved backend before first API calls
+  if (activeBackend.value !== 'codex') {
+    setActiveBackend(activeBackend.value)
+  }
   await refreshAll()
   hasInitialized.value = true
   await syncThreadSelectionWithRoute()
