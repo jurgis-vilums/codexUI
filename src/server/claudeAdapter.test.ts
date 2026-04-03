@@ -393,8 +393,8 @@ describe('ClaudeAdapter', () => {
       const result = await adapter.rpc('model/list', {}) as any
       const ids = result.data.map((m: { id: string }) => m.id)
 
-      expect(ids).toContain('claude-opus-4-1')
-      expect(ids).toContain('claude-sonnet-4-5-20250514')
+      expect(ids).toContain('claude-opus-4-6')
+      expect(ids).toContain('claude-sonnet-4-6')
       expect(ids).toContain('claude-haiku-4-5-20251001')
     })
   })

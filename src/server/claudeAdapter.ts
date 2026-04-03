@@ -59,8 +59,8 @@ export class ClaudeAdapter {
       case 'model/list':
         return {
           data: [
-            { id: 'claude-opus-4-1', model: 'claude-opus-4-1' },
-            { id: 'claude-sonnet-4-5-20250514', model: 'claude-sonnet-4-5-20250514' },
+            { id: 'claude-opus-4-6', model: 'claude-opus-4-6' },
+            { id: 'claude-sonnet-4-6', model: 'claude-sonnet-4-6' },
             { id: 'claude-haiku-4-5-20251001', model: 'claude-haiku-4-5-20251001' },
           ],
           nextCursor: null,
