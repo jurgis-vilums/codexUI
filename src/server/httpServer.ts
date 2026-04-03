@@ -243,12 +243,14 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
         })
       })
 
-      wss.on('connection', (ws: WebSocket) => {
+      wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
+        const wsUrl = new URL(req.url ?? '', 'http://localhost')
+        const wsBackend = wsUrl.searchParams.get('backend') === 'claude' ? 'claude' as const : 'codex' as const
         ws.send(JSON.stringify({ method: 'ready', params: { ok: true }, atIso: new Date().toISOString() }))
         const unsubscribe = bridge.subscribeNotifications((notification) => {
           if (ws.readyState !== 1) return
           ws.send(JSON.stringify(notification))
-        })
+        }, wsBackend)
 
         ws.on('close', unsubscribe)
         ws.on('error', unsubscribe)
