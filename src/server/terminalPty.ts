@@ -12,7 +12,7 @@ type TerminalSession = {
 let session: TerminalSession | null = null
 
 function defaultShell(): string {
-  if (platform() === 'win32') return 'powershell.exe'
+  if (platform() === 'win32') return 'pwsh.exe'
   return process.env.SHELL || '/bin/bash'
 }
 
