@@ -395,12 +395,17 @@ export class ClaudeAdapter {
       turn: { id: turnId, status: 'inProgress', items: [], error: null },
     })
 
-    // Await stream fully — ensures session is clean before next turn can start.
-    // Notifications still stream to the frontend via WebSocket in real-time.
-    await this.processStream(threadId, turnId, q).catch((err) => {
+    // Fire-and-forget: stream processes in the background while notifications
+    // flow to the frontend in real-time via WebSocket.  Store the promise in
+    // activeStreams so that the next turn/start for this thread can await it
+    // (see prevStream check above).
+    const streamPromise = this.processStream(threadId, turnId, q).catch((err) => {
       console.warn(`[claude-adapter] stream error for turn ${turnId}:`, err)
     })
+    this.activeStreams.set(threadId, streamPromise)
 
+    // Return immediately so the RPC caller gets the turn ID without waiting
+    // for the entire stream to finish.
     return {
       turn: { id: turnId },
     }
@@ -421,6 +426,9 @@ export class ClaudeAdapter {
   private async processStream(threadId: string, turnId: string, q: AsyncIterable<SDKMessage>) {
     // Track active text block for streaming deltas
     let activeTextItemId: string | null = null
+    // effectiveId tracks the current key in activeStreams/activeSessions
+    // (may change from pendingId → realId when init message arrives)
+    let effectiveId = threadId
 
     try {
       for await (const msg of q) {
@@ -430,20 +438,21 @@ export class ClaudeAdapter {
           if (realId && realId !== threadId) {
             this.threadIdMap.set(threadId, realId)
             // Move active session and stream entries to the real ID
-            const session = this.activeSessions.get(threadId)
+            const session = this.activeSessions.get(effectiveId)
             if (session) {
               this.activeSessions.set(realId, session)
-              this.activeSessions.delete(threadId)
+              this.activeSessions.delete(effectiveId)
             }
-            const stream = this.activeStreams.get(threadId)
+            const stream = this.activeStreams.get(effectiveId)
             if (stream) {
               this.activeStreams.set(realId, stream)
-              this.activeStreams.delete(threadId)
+              this.activeStreams.delete(effectiveId)
             }
             const cwd = this.threadCwdMap.get(threadId)
             if (cwd) {
               this.threadCwdMap.set(realId, cwd)
             }
+            effectiveId = realId
           }
           continue
         }
@@ -499,6 +508,8 @@ export class ClaudeAdapter {
         }
       }
     } finally {
+      this.activeStreams.delete(effectiveId)
+      this.activeSessions.delete(effectiveId)
       this.emitNotification('turn/completed', {
         threadId,
         turn: { id: turnId, status: 'completed', items: [], error: null },
