@@ -347,6 +347,15 @@ export class ClaudeAdapter {
       .map((i) => i.text)
       .join('\n')
 
+    // Abort any previous query for this thread before starting a new one
+    const prevSession = this.activeSessions.get(threadId)
+    if (prevSession) {
+      prevSession.abortController.abort()
+      this.activeSessions.delete(threadId)
+      // Give the SDK time to clean up the previous session
+      await new Promise(r => setTimeout(r, 1000))
+    }
+
     const abortController = new AbortController()
 
     // Check if this is a pending thread (first message — create new session)
@@ -367,6 +376,7 @@ export class ClaudeAdapter {
     if (!isNewSession) {
       queryOptions.resume = threadId
     }
+
 
     const q = query({ prompt, options: queryOptions as any })
 
@@ -419,6 +429,12 @@ export class ClaudeAdapter {
           const realId = (msg as any).session_id
           if (realId && realId !== threadId) {
             this.threadIdMap.set(threadId, realId)
+            // Also move the active session entry to the real ID
+            const session = this.activeSessions.get(threadId)
+            if (session) {
+              this.activeSessions.set(realId, session)
+              this.activeSessions.delete(threadId)
+            }
           }
           continue
         }
