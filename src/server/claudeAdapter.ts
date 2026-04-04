@@ -1,4 +1,4 @@
-import { listSessions, query, getSessionMessages, renameSession, forkSession } from '@anthropic-ai/claude-agent-sdk'
+import { listSessions, query, getSessionMessages, getSessionInfo, renameSession, forkSession } from '@anthropic-ai/claude-agent-sdk'
 import type { SDKSessionInfo, Query, SDKMessage, SessionMessage } from '@anthropic-ai/claude-agent-sdk'
 import { scanClaudeSkills } from './claudeSkills.js'
 import { scanProjectFiles, readProjectFile, saveProjectFile } from './projectFiles.js'
@@ -201,29 +201,19 @@ export class ClaudeAdapter {
   }
 
   private async handleThreadResume(params: RpcParams) {
-    const threadId = params.threadId as string
-    const abortController = new AbortController()
+    const threadId = this.resolveThreadId(params.threadId as string)
 
-    const q = query({
-      prompt: '',
-      options: {
-        resume: threadId,
-        permissionMode: 'bypassPermissions',
-        abortController,
-      },
-    })
+    // Use getSessionInfo to verify the session exists without sending an
+    // empty prompt.  The old approach (query with prompt:'') added an empty
+    // user message to the conversation, which caused "cache_control cannot
+    // be set for empty text blocks" errors on the next resume.
+    const info = await getSessionInfo(threadId, {})
+    const sessionId = info?.sessionId ?? threadId
 
-    let sessionId = ''
-    for await (const msg of q) {
-      if (msg.type === 'system' && msg.subtype === 'init') {
-        sessionId = msg.session_id
-        break
-      }
-      if (msg.type === 'result') break
+    // Store the mapping so subsequent RPCs can resolve this thread
+    if (sessionId !== threadId) {
+      this.threadIdMap.set(threadId, sessionId)
     }
-
-    if (!sessionId) sessionId = threadId
-    this.activeSessions.set(sessionId, { query: q, abortController })
 
     return { thread: { id: sessionId } }
   }

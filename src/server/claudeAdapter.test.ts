@@ -16,6 +16,7 @@ import {
   query as mockQuery,
   listSessions as mockListSessions,
   getSessionMessages as mockGetSessionMessages,
+  getSessionInfo as mockGetSessionInfo,
   renameSession as mockRenameSession,
   forkSession as mockForkSession,
 } from '@anthropic-ai/claude-agent-sdk'
@@ -575,34 +576,21 @@ describe('ClaudeAdapter', () => {
   })
 
   describe('thread/resume', () => {
-    it('creates a query with resume option and returns thread', async () => {
+    it('uses getSessionInfo to verify session and returns thread', async () => {
       const sessionId = 'sess-resume-001'
 
-      const resumeQuery = (async function* () {
-        yield {
-          type: 'system', subtype: 'init', session_id: sessionId,
-          cwd: '/project', model: 'claude-opus-4-1',
-          tools: [], mcp_servers: [], permissionMode: 'bypassPermissions',
-          slash_commands: [], skills: [], output_style: 'concise', plugins: [],
-          uuid: '00000000-0000-0000-0000-000000000030',
-          claude_code_version: '1.0.0', apiKeySource: 'user',
-        }
-      })()
-
-      vi.mocked(mockQuery).mockReturnValueOnce(resumeQuery as any)
+      vi.mocked(mockGetSessionInfo).mockResolvedValueOnce({
+        sessionId,
+        firstPrompt: 'hello',
+        summary: '',
+        lastModified: Date.now(),
+      } as any)
 
       const result = await adapter.rpc('thread/resume', {
         threadId: sessionId,
       }) as any
 
-      expect(mockQuery).toHaveBeenCalledWith({
-        prompt: '',
-        options: expect.objectContaining({
-          resume: sessionId,
-          permissionMode: 'bypassPermissions',
-        }),
-      })
-
+      expect(mockGetSessionInfo).toHaveBeenCalledWith(sessionId, {})
       expect(result.thread.id).toBe(sessionId)
     })
   })
@@ -762,6 +750,9 @@ describe('ClaudeAdapter', () => {
         input: [{ type: 'text', text: 'List files' }],
       })
 
+      // Wait for background stream to complete
+      await new Promise(r => setTimeout(r, 50))
+
       // Should have agentMessage item for the text
       const agentItems = notifications.filter(n =>
         n.method === 'item/started' && (n.params as any).item.type === 'agentMessage'
@@ -813,6 +804,9 @@ describe('ClaudeAdapter', () => {
         threadId,
         input: [{ type: 'text', text: 'Fix the typo' }],
       })
+
+      // Wait for background stream to complete
+      await new Promise(r => setTimeout(r, 50))
 
       const fileItems = notifications.filter(n =>
         n.method === 'item/started' && (n.params as any).item.type === 'fileChange'
