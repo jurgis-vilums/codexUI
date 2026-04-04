@@ -1,5 +1,5 @@
 <template>
-  <DesktopLayout :is-sidebar-collapsed="isSidebarCollapsed" @close-sidebar="setSidebarCollapsed(true)">
+  <DesktopLayout :is-sidebar-collapsed="isSidebarCollapsed" :is-terminal-open="isTerminalOpen" @close-sidebar="setSidebarCollapsed(true)">
     <template #sidebar>
       <section class="sidebar-root">
         <div class="sidebar-scrollable">
@@ -298,6 +298,9 @@
         </section>
       </section>
     </template>
+    <template #terminal>
+      <TerminalPanel :visible="isTerminalOpen" />
+    </template>
   </DesktopLayout>
 </template>
 
@@ -315,6 +318,7 @@ import RateLimitStatus from './components/content/RateLimitStatus.vue'
 import ComposerDropdown from './components/content/ComposerDropdown.vue'
 import ComposerRuntimeDropdown from './components/content/ComposerRuntimeDropdown.vue'
 import SkillsHub from './components/content/SkillsHub.vue'
+import TerminalPanel from './components/content/TerminalPanel.vue'
 import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vue'
 import IconTablerSearch from './components/icons/IconTablerSearch.vue'
 import IconTablerSettings from './components/icons/IconTablerSettings.vue'
@@ -935,9 +939,20 @@ function onWindowKeyDown(event: KeyboardEvent): void {
   if (event.defaultPrevented) return
   if (!event.ctrlKey && !event.metaKey) return
   if (event.shiftKey || event.altKey) return
-  if (event.key.toLowerCase() !== 'b') return
-  event.preventDefault()
-  setSidebarCollapsed(!isSidebarCollapsed.value)
+
+  const key = event.key.toLowerCase()
+
+  if (key === 'b') {
+    event.preventDefault()
+    setSidebarCollapsed(!isSidebarCollapsed.value)
+    return
+  }
+
+  if (key === '`') {
+    event.preventDefault()
+    toggleTerminal()
+    return
+  }
 }
 
 function onSubmitThreadMessage(payload: { text: string; imageUrls: string[]; fileAttachments: Array<{ label: string; path: string; fsPath: string }>; skills: Array<{ name: string; path: string }>; mode: 'steer' | 'queue'; rollbackLatestUserTurn?: boolean }): void {
@@ -1437,6 +1452,25 @@ function loadSidebarCollapsed(): boolean {
 function saveSidebarCollapsed(value: boolean): void {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, value ? '1' : '0')
+}
+
+const TERMINAL_OPEN_STORAGE_KEY = 'codex-web-local.terminal-open.v1'
+
+function loadTerminalOpen(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.localStorage.getItem(TERMINAL_OPEN_STORAGE_KEY) === '1'
+}
+
+function saveTerminalOpen(value: boolean): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(TERMINAL_OPEN_STORAGE_KEY, value ? '1' : '0')
+}
+
+const isTerminalOpen = ref(loadTerminalOpen())
+
+function toggleTerminal(): void {
+  isTerminalOpen.value = !isTerminalOpen.value
+  saveTerminalOpen(isTerminalOpen.value)
 }
 
 function normalizeMessageType(rawType: string | undefined, role: string): string {
