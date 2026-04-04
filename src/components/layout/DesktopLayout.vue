@@ -24,18 +24,31 @@
     </template>
 
     <section class="desktop-main">
-      <div class="desktop-main-content" :style="isTerminalOpen ? { flex: '1 1 0', minHeight: '0' } : { flex: '1 1 0' }">
-        <slot name="content" />
+      <div class="desktop-main-left">
+        <div class="desktop-main-content" :style="isTerminalOpen ? { flex: '1 1 0', minHeight: '0' } : { flex: '1 1 0' }">
+          <slot name="content" />
+        </div>
+        <template v-if="isTerminalOpen">
+          <button
+            class="terminal-resize-handle"
+            type="button"
+            aria-label="Resize terminal"
+            @mousedown="onTerminalResizeHandleMouseDown"
+          />
+          <div class="desktop-terminal" :style="{ height: terminalHeight + 'px' }">
+            <slot name="terminal" />
+          </div>
+        </template>
       </div>
-      <template v-if="isTerminalOpen">
+      <template v-if="isDiffPanelOpen">
         <button
-          class="terminal-resize-handle"
+          class="diff-resize-handle"
           type="button"
-          aria-label="Resize terminal"
-          @mousedown="onTerminalResizeHandleMouseDown"
+          aria-label="Resize diff panel"
+          @mousedown="onDiffResizeHandleMouseDown"
         />
-        <div class="desktop-terminal" :style="{ height: terminalHeight + 'px' }">
-          <slot name="terminal" />
+        <div class="desktop-diff-panel" :style="{ width: diffPanelWidth + 'px' }">
+          <slot name="diff" />
         </div>
       </template>
     </section>
@@ -50,10 +63,12 @@ const props = withDefaults(
   defineProps<{
     isSidebarCollapsed?: boolean
     isTerminalOpen?: boolean
+    isDiffPanelOpen?: boolean
   }>(),
   {
     isSidebarCollapsed: false,
     isTerminalOpen: false,
+    isDiffPanelOpen: false,
   },
 )
 
@@ -141,6 +156,48 @@ function onTerminalResizeHandleMouseDown(event: MouseEvent): void {
   window.addEventListener('mouseup', onMouseUp)
 }
 
+const DIFF_PANEL_WIDTH_KEY = 'codex-web-local.diff-panel-width.v1'
+const MIN_DIFF_PANEL_WIDTH = 300
+const MAX_DIFF_PANEL_FRACTION = 0.7
+const DEFAULT_DIFF_PANEL_WIDTH = 500
+
+function loadDiffPanelWidth(): number {
+  if (typeof window === 'undefined') return DEFAULT_DIFF_PANEL_WIDTH
+  const raw = window.localStorage.getItem(DIFF_PANEL_WIDTH_KEY)
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed)) return DEFAULT_DIFF_PANEL_WIDTH
+  return Math.max(MIN_DIFF_PANEL_WIDTH, parsed)
+}
+
+function saveDiffPanelWidth(value: number): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(DIFF_PANEL_WIDTH_KEY, String(value))
+}
+
+const diffPanelWidth = ref(loadDiffPanelWidth())
+
+function onDiffResizeHandleMouseDown(event: MouseEvent): void {
+  event.preventDefault()
+  const startX = event.clientX
+  const startWidth = diffPanelWidth.value
+  const mainEl = document.querySelector('.desktop-main') as HTMLElement | null
+  const maxWidth = mainEl ? mainEl.clientWidth * MAX_DIFF_PANEL_FRACTION : 800
+
+  const onMouseMove = (moveEvent: MouseEvent) => {
+    const delta = startX - moveEvent.clientX
+    diffPanelWidth.value = Math.min(maxWidth, Math.max(MIN_DIFF_PANEL_WIDTH, startWidth + delta))
+  }
+
+  const onMouseUp = () => {
+    saveDiffPanelWidth(diffPanelWidth.value)
+    window.removeEventListener('mousemove', onMouseMove)
+    window.removeEventListener('mouseup', onMouseUp)
+  }
+
+  window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('mouseup', onMouseUp)
+}
+
 function onResizeHandleMouseDown(event: MouseEvent): void {
   event.preventDefault()
   const startX = event.clientX
@@ -186,7 +243,11 @@ function onResizeHandleMouseDown(event: MouseEvent): void {
 }
 
 .desktop-main {
-  @apply flex flex-col bg-white min-h-0 overflow-hidden;
+  @apply flex flex-row bg-white min-h-0 overflow-hidden;
+}
+
+.desktop-main-left {
+  @apply flex flex-col flex-1 min-w-0 overflow-hidden;
 }
 
 .desktop-main-content {
@@ -203,6 +264,19 @@ function onResizeHandleMouseDown(event: MouseEvent): void {
 }
 
 .desktop-terminal {
+  @apply flex-shrink-0 overflow-hidden;
+}
+
+.diff-resize-handle {
+  @apply relative w-px cursor-col-resize bg-slate-300 hover:bg-slate-400 transition flex-shrink-0;
+}
+
+.diff-resize-handle::before {
+  content: '';
+  @apply absolute -left-2 -right-2 top-0 bottom-0;
+}
+
+.desktop-diff-panel {
   @apply flex-shrink-0 overflow-hidden;
 }
 
@@ -258,6 +332,10 @@ function onResizeHandleMouseDown(event: MouseEvent): void {
 }
 
 :global(:root.dark) .terminal-resize-handle {
+  @apply bg-zinc-700 hover:bg-zinc-600;
+}
+
+:global(:root.dark) .diff-resize-handle {
   @apply bg-zinc-700 hover:bg-zinc-600;
 }
 </style>
