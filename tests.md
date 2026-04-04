@@ -367,3 +367,25 @@ This file tracks manual regression and feature verification steps.
 
 #### Rollback/Cleanup
 - None.
+
+### Feature: Vite dev server routes Claude WebSocket notifications to the Claude backend
+
+#### Prerequisites
+- Run the app with `pnpm run dev`.
+- Claude backend is authenticated.
+- A WebSocket client or browser DevTools is available.
+
+#### Steps
+1. Connect to `ws://localhost:5173/codex-api/ws?backend=claude`.
+2. Start a new Claude thread via the app or RPC and send a first message.
+3. Wait for `turn/started`, `item/agentMessage/delta`, and `turn/completed` events on the WebSocket connection.
+4. Send a second Claude follow-up message in the same thread.
+5. Confirm the second turn also emits `item/agentMessage/delta` events on the same WebSocket connection.
+
+#### Expected Results
+- The Vite dev server forwards notifications from the Claude backend when `backend=claude` is present.
+- Both first-turn and follow-up Claude messages stream over WebSocket in dev mode.
+- The emitted `threadId` remains stable across both turns for a newly created Claude thread.
+
+#### Rollback/Cleanup
+- Disconnect the WebSocket client or stop the dev server.
