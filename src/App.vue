@@ -1,5 +1,5 @@
 <template>
-  <DesktopLayout :is-sidebar-collapsed="isSidebarCollapsed" :is-terminal-open="isTerminalOpen" @close-sidebar="setSidebarCollapsed(true)">
+  <DesktopLayout :is-sidebar-collapsed="isSidebarCollapsed" :is-terminal-open="isTerminalOpen" :is-diff-panel-open="isDiffPanelOpen" @close-sidebar="setSidebarCollapsed(true)">
     <template #sidebar>
       <section class="sidebar-root">
         <div class="sidebar-scrollable">
@@ -157,6 +157,15 @@
             >
               <IconTablerTerminal />
             </button>
+            <button
+              type="button"
+              class="terminal-toggle-btn"
+              :class="{ 'is-active': isDiffPanelOpen }"
+              title="Toggle diff panel (Alt+Ctrl+B)"
+              @click="toggleDiffPanel"
+            >
+              <IconTablerGitBranch />
+            </button>
           </template>
         </ContentHeader>
 
@@ -312,6 +321,9 @@
     <template #terminal>
       <TerminalPanel :visible="isTerminalOpen" />
     </template>
+        <template #diff>
+          <DiffPanel :visible="isDiffPanelOpen" />
+        </template>
   </DesktopLayout>
 </template>
 
@@ -331,6 +343,8 @@ import ComposerRuntimeDropdown from './components/content/ComposerRuntimeDropdow
 import SkillsHub from './components/content/SkillsHub.vue'
 import TerminalPanel from './components/content/TerminalPanel.vue'
 import IconTablerTerminal from './components/icons/IconTablerTerminal.vue'
+import DiffPanel from './components/content/DiffPanel.vue'
+import IconTablerGitBranch from './components/icons/IconTablerGitBranch.vue'
 import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vue'
 import IconTablerSearch from './components/icons/IconTablerSearch.vue'
 import IconTablerSettings from './components/icons/IconTablerSettings.vue'
@@ -950,20 +964,29 @@ function setSidebarCollapsed(nextValue: boolean): void {
 function onWindowKeyDown(event: KeyboardEvent): void {
   if (event.defaultPrevented) return
   if (!event.ctrlKey && !event.metaKey) return
-  if (event.shiftKey || event.altKey) return
 
   const key = event.key.toLowerCase()
 
-  if (key === 'b') {
-    event.preventDefault()
-    setSidebarCollapsed(!isSidebarCollapsed.value)
-    return
+  if (!event.shiftKey && !event.altKey) {
+    if (key === 'b') {
+      event.preventDefault()
+      setSidebarCollapsed(!isSidebarCollapsed.value)
+      return
+    }
+
+    if (key === '`') {
+      event.preventDefault()
+      toggleTerminal()
+      return
+    }
   }
 
-  if (key === '`') {
-    event.preventDefault()
-    toggleTerminal()
-    return
+  if (event.altKey && !event.shiftKey) {
+    if (key === 'b') {
+      event.preventDefault()
+      toggleDiffPanel()
+      return
+    }
   }
 }
 
@@ -1483,6 +1506,25 @@ const isTerminalOpen = ref(loadTerminalOpen())
 function toggleTerminal(): void {
   isTerminalOpen.value = !isTerminalOpen.value
   saveTerminalOpen(isTerminalOpen.value)
+}
+
+const DIFF_PANEL_OPEN_STORAGE_KEY = 'codex-web-local.diff-panel-open.v1'
+
+function loadDiffPanelOpen(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.localStorage.getItem(DIFF_PANEL_OPEN_STORAGE_KEY) === '1'
+}
+
+function saveDiffPanelOpen(value: boolean): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(DIFF_PANEL_OPEN_STORAGE_KEY, value ? '1' : '0')
+}
+
+const isDiffPanelOpen = ref(loadDiffPanelOpen())
+
+function toggleDiffPanel(): void {
+  isDiffPanelOpen.value = !isDiffPanelOpen.value
+  saveDiffPanelOpen(isDiffPanelOpen.value)
 }
 
 function normalizeMessageType(rawType: string | undefined, role: string): string {
