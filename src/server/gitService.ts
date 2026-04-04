@@ -1,7 +1,4 @@
-import { exec } from 'node:child_process'
-import { promisify } from 'node:util'
-
-const execAsync = promisify(exec)
+import { execFile } from 'node:child_process'
 
 export type GitFileStatus = {
   path: string
@@ -59,10 +56,18 @@ function parsePorcelainV2(output: string): GitFileStatus[] {
 }
 
 async function gitExec(args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
-  return execAsync(`git ${args.join(' ')}`, {
-    cwd,
-    maxBuffer: 10 * 1024 * 1024,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+  return new Promise((resolve, reject) => {
+    execFile('git', args, {
+      cwd,
+      maxBuffer: 10 * 1024 * 1024,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    }, (error, stdout, stderr) => {
+      if (error) {
+        reject(error)
+        return
+      }
+      resolve({ stdout, stderr })
+    })
   })
 }
 
