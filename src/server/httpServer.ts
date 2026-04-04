@@ -9,6 +9,7 @@ import { createAuthSession } from './authMiddleware.js'
 import { createDirectoryListingHtml, createTextEditorHtml, decodeBrowsePath, isTextEditableFile, normalizeLocalPath } from './localBrowseUi.js'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { getOrCreateSession, attachDataListener, writeToSession, resizeSession, startGracePeriod, destroySession } from './terminalPty.js'
+import { handleGitAction, type GitAction } from './gitService.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distDir = join(__dirname, '..', 'dist')
@@ -230,6 +231,7 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
     attachWebSocket: (server: HttpServer) => {
       const wss = new WebSocketServer({ noServer: true })
       const terminalWss = new WebSocketServer({ noServer: true })
+      const gitWss = new WebSocketServer({ noServer: true })
 
       server.on('upgrade', (req: IncomingMessage, socket, head) => {
         const url = new URL(req.url ?? '', 'http://localhost')
@@ -243,6 +245,13 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
         if (url.pathname === '/ws/terminal') {
           terminalWss.handleUpgrade(req, socket, head, (ws) => {
             terminalWss.emit('connection', ws, req)
+          })
+          return
+        }
+
+        if (url.pathname === '/ws/git') {
+          gitWss.handleUpgrade(req, socket, head, (ws) => {
+            gitWss.emit('connection', ws, req)
           })
           return
         }
@@ -282,6 +291,23 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
 
         ws.on('error', () => {
           startGracePeriod()
+        })
+      })
+
+      gitWss.on('connection', (ws: WebSocket) => {
+        ws.on('message', async (msg: Buffer | string) => {
+          const str = typeof msg === 'string' ? msg : msg.toString('utf-8')
+          try {
+            const parsed = JSON.parse(str) as GitAction
+            const result = await handleGitAction(parsed, process.cwd())
+            if (ws.readyState === 1) {
+              ws.send(JSON.stringify({ type: 'git-result', _id: parsed._id, ...result }))
+            }
+          } catch (err: unknown) {
+            if (ws.readyState === 1) {
+              ws.send(JSON.stringify({ type: 'git-result', _id: null, action: 'error', error: String(err) }))
+            }
+          }
         })
       })
 

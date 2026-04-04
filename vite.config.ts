@@ -10,6 +10,7 @@ import { basename, extname, isAbsolute } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import pkg from "./package.json";
 import { getOrCreateSession, attachDataListener, writeToSession, resizeSession, startGracePeriod } from "./src/server/terminalPty.js";
+import { handleGitAction, type GitAction } from "./src/server/gitService.js";
 
 const IMAGE_CONTENT_TYPES: Record<string, string> = {
   ".avif": "image/avif",
@@ -115,12 +116,19 @@ export default defineConfig({
             hostScope[WS_UPGRADE_ATTACHED_KEY] = true;
             const wss = new WebSocketServer({ noServer: true });
             const terminalWss = new WebSocketServer({ noServer: true });
+            const gitWss = new WebSocketServer({ noServer: true });
 
             httpServer.on("upgrade", (req, socket, head) => {
               const requestUrl = new URL(req.url ?? "", "http://localhost");
               if (requestUrl.pathname === "/ws/terminal") {
                 terminalWss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
                   terminalWss.emit("connection", ws, req);
+                });
+                return;
+              }
+              if (requestUrl.pathname === "/ws/git") {
+                gitWss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
+                  gitWss.emit("connection", ws, req);
                 });
                 return;
               }
@@ -171,9 +179,27 @@ export default defineConfig({
               ws.on("error", () => startGracePeriod());
             });
 
+            gitWss.on("connection", (ws: WebSocket) => {
+              ws.on("message", async (msg: Buffer | string) => {
+                const str = typeof msg === "string" ? msg : msg.toString("utf-8");
+                try {
+                  const parsed = JSON.parse(str) as GitAction;
+                  const result = await handleGitAction(parsed, process.cwd());
+                  if (ws.readyState === ws.OPEN) {
+                    ws.send(JSON.stringify({ type: "git-result", _id: parsed._id, ...result }));
+                  }
+                } catch (err: unknown) {
+                  if (ws.readyState === ws.OPEN) {
+                    ws.send(JSON.stringify({ type: "git-result", _id: null, action: "error", error: String(err) }));
+                  }
+                }
+              });
+            });
+
             httpServer.once("close", () => {
               wss.close();
               terminalWss.close();
+              gitWss.close();
             });
           }
         }
