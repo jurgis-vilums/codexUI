@@ -332,26 +332,33 @@
           </SidebarMenuRow>
 
           <div v-if="getProjectFiles(group.projectName).length > 0" class="project-config-section">
-            <template v-for="source in getConfigSources(group.projectName)" :key="source.label">
-              <button
-                v-if="getConfigSources(group.projectName).length > 1"
-                class="config-source-toggle"
-                type="button"
-                @click="toggleConfigSource(group.projectName, source.label)"
-              >
-                <span class="config-source-chevron">{{ isConfigSourceCollapsed(group.projectName, source.label) ? '▸' : '▾' }}</span>
-                <span class="config-source-label">{{ source.label }}</span>
-                <span class="config-source-count">{{ source.files.length }}</span>
-              </button>
-              <ul v-if="!isConfigSourceCollapsed(group.projectName, source.label)" class="config-file-list">
-                <li v-for="file in source.files" :key="file.path" class="config-file-item">
-                  <button class="config-file-button" type="button" @click="$emit('open-file', { path: file.path, name: file.name })" :title="file.description || file.name">
-                    <span class="config-file-icon">{{ getCategoryIcon(file.category) }}</span>
-                    <span class="config-file-name">{{ file.name }}</span>
-                  </button>
-                </li>
-              </ul>
-            </template>
+            <button class="config-main-toggle" type="button" @click="toggleConfSection(group.projectName)">
+              <span class="config-main-chevron">{{ isConfSectionCollapsed(group.projectName) ? '▸' : '▾' }}</span>
+              <span class="config-main-label">conf</span>
+              <span class="config-main-count">{{ getProjectFiles(group.projectName).length }}</span>
+            </button>
+            <div v-if="!isConfSectionCollapsed(group.projectName)">
+              <template v-for="source in getConfigSources(group.projectName)" :key="source.label">
+                <button
+                  v-if="getConfigSources(group.projectName).length > 1"
+                  class="config-source-toggle"
+                  type="button"
+                  @click="toggleConfigSource(group.projectName, source.label)"
+                >
+                  <span class="config-source-chevron">{{ isConfigSourceCollapsed(group.projectName, source.label) ? '▸' : '▾' }}</span>
+                  <span class="config-source-label">{{ source.label }}</span>
+                  <span class="config-source-count">{{ source.files.length }}</span>
+                </button>
+                <ul v-if="!isConfigSourceCollapsed(group.projectName, source.label)" class="config-file-list">
+                  <li v-for="file in source.files" :key="file.path" class="config-file-item">
+                    <button class="config-file-button" type="button" @click="$emit('open-file', { path: file.path, name: file.name })" :title="file.description || file.name">
+                      <span class="config-file-icon">{{ getCategoryIcon(file.category) }}</span>
+                      <span class="config-file-name">{{ file.name }}</span>
+                    </button>
+                  </li>
+                </ul>
+              </template>
+            </div>
           </div>
 
           <SidebarMenuRow v-if="hasHiddenThreads(group)" class="thread-show-more-row">
@@ -514,6 +521,19 @@ const projectGroupResizeObserver =
       })
     : null
 const collapsedConfigSources = ref<Record<string, Set<string>>>({})
+// Track which conf sections are expanded (default: all collapsed)
+const expandedConfSections = ref<Set<string>>(new Set())
+
+function toggleConfSection(projectName: string) {
+  const set = new Set(expandedConfSections.value)
+  if (set.has(projectName)) set.delete(projectName)
+  else set.add(projectName)
+  expandedConfSections.value = set
+}
+
+function isConfSectionCollapsed(projectName: string) {
+  return !expandedConfSections.value.has(projectName)
+}
 
 function getProjectFiles(projectName: string) {
   return props.projectFiles?.[projectName] ?? []
@@ -1731,6 +1751,26 @@ onBeforeUnmount(() => {
 
 .project-config-section {
   @apply mt-1 mb-2;
+}
+
+.config-main-toggle {
+  @apply flex items-center gap-1 w-full px-3 py-1 text-xs font-medium text-slate-400 hover:text-slate-600 cursor-pointer;
+}
+
+.config-main-chevron {
+  @apply w-3 text-center text-[10px];
+}
+
+.config-main-label {
+  @apply font-mono text-xs opacity-70;
+}
+
+.config-main-count {
+  @apply ml-auto text-[10px] opacity-40;
+}
+
+:global(:root.dark) .config-main-toggle {
+  @apply text-zinc-500 hover:text-zinc-300;
 }
 
 .config-source-toggle {
