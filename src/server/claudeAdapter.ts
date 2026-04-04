@@ -1,6 +1,7 @@
 import { listSessions, query, getSessionMessages, renameSession, forkSession } from '@anthropic-ai/claude-agent-sdk'
 import type { SDKSessionInfo, Query, SDKMessage, SessionMessage } from '@anthropic-ai/claude-agent-sdk'
 import { scanClaudeSkills } from './claudeSkills.js'
+import { scanProjectFiles, readProjectFile, saveProjectFile } from './projectFiles.js'
 
 type RpcParams = Record<string, unknown>
 type NotificationListener = (value: { method: string; params: unknown }) => void
@@ -113,6 +114,24 @@ export class ClaudeAdapter {
 
       case 'skills/config/write':
         return {}
+
+      case 'claude/project-files': {
+        const cwd = typeof p.cwd === 'string' ? p.cwd : process.cwd()
+        return { files: await scanProjectFiles(cwd) }
+      }
+
+      case 'claude/read-file': {
+        const path = typeof p.path === 'string' ? p.path : ''
+        const result = await readProjectFile(path)
+        if (!result) return { error: 'File not found or not allowed' }
+        return result
+      }
+
+      case 'claude/save-file': {
+        const path = typeof p.path === 'string' ? p.path : ''
+        const content = typeof p.content === 'string' ? p.content : ''
+        return saveProjectFile(path, content)
+      }
 
       default:
         console.warn(`[claude-adapter] unhandled method: ${method}`)
