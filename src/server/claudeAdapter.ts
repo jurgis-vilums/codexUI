@@ -308,6 +308,12 @@ export class ClaudeAdapter {
 
   private async handleThreadRead(params: RpcParams) {
     const threadId = this.resolveThreadId(params.threadId as string)
+
+    // If thread is pending (no real session yet), return empty message list
+    if (this.pendingThreads.has(threadId)) {
+      return { messages: [] }
+    }
+
     const includeTurns = params.includeTurns !== false
 
     let turns: unknown[] = []
@@ -503,6 +509,14 @@ export class ClaudeAdapter {
     } finally {
       this.activeStreams.delete(effectiveId)
       this.activeSessions.delete(effectiveId)
+      this.threadCwdMap.delete(effectiveId)
+      // Clean up the reverse mapping: pendingId → effectiveId
+      for (const [pending, real] of this.threadIdMap) {
+        if (real === effectiveId) {
+          this.threadIdMap.delete(pending)
+          break
+        }
+      }
       this.emitNotification('turn/completed', {
         threadId,
         turn: { id: turnId, status: 'completed', items: [], error: null },
