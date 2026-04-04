@@ -16,6 +16,7 @@ import {
   query as mockQuery,
   listSessions as mockListSessions,
   getSessionMessages as mockGetSessionMessages,
+  getSessionInfo as mockGetSessionInfo,
   renameSession as mockRenameSession,
   forkSession as mockForkSession,
 } from '@anthropic-ai/claude-agent-sdk'
@@ -751,35 +752,58 @@ describe('ClaudeAdapter', () => {
   })
 
   describe('thread/resume', () => {
-    it('creates a query with resume option and returns thread', async () => {
+    it('returns thread and stores cwd without opening a query stream', async () => {
       const sessionId = 'sess-resume-001'
-
-      const resumeQuery = (async function* () {
-        yield {
-          type: 'system', subtype: 'init', session_id: sessionId,
-          cwd: '/project', model: 'claude-opus-4-1',
-          tools: [], mcp_servers: [], permissionMode: 'bypassPermissions',
-          slash_commands: [], skills: [], output_style: 'concise', plugins: [],
-          uuid: '00000000-0000-0000-0000-000000000030',
-          claude_code_version: '1.0.0', apiKeySource: 'user',
-        }
-      })()
-
-      vi.mocked(mockQuery).mockReturnValueOnce(resumeQuery as any)
+      vi.mocked(mockGetSessionInfo).mockResolvedValue({
+        sessionId,
+        summary: 'Resume',
+        lastModified: 1712188800000,
+        cwd: '/project',
+      } as any)
 
       const result = await adapter.rpc('thread/resume', {
         threadId: sessionId,
       }) as any
 
-      expect(mockQuery).toHaveBeenCalledWith({
-        prompt: '',
-        options: expect.objectContaining({
-          resume: sessionId,
-          permissionMode: 'bypassPermissions',
-        }),
+      expect(mockQuery).not.toHaveBeenCalled()
+      expect(mockGetSessionInfo).toHaveBeenCalledWith(sessionId, {})
+      expect(result.thread.id).toBe(sessionId)
+    })
+
+    it('uses the resumed thread cwd for a subsequent turn/start on an existing session', async () => {
+      const sessionId = 'sess-existing-001'
+      vi.mocked(mockGetSessionInfo).mockResolvedValue({
+        sessionId,
+        summary: 'Resume',
+        lastModified: 1712188800000,
+        cwd: '/project/from-session',
+      } as any)
+
+      const fakeQuery = (async function* () {
+        yield {
+          type: 'result', subtype: 'success', session_id: sessionId,
+          uuid: '00000000-0000-0000-0000-000000000031',
+          result: '', duration_ms: 0, duration_api_ms: 0,
+          is_error: false, num_turns: 1, stop_reason: 'end_turn',
+          total_cost_usd: 0, usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          modelUsage: {}, permission_denials: [],
+        }
+      })()
+      vi.mocked(mockQuery).mockReturnValueOnce(fakeQuery as any)
+
+      await adapter.rpc('thread/resume', { threadId: sessionId })
+      await adapter.rpc('turn/start', {
+        threadId: sessionId,
+        input: [{ type: 'text', text: 'hello' }],
       })
 
-      expect(result.thread.id).toBe(sessionId)
+      expect(mockQuery).toHaveBeenCalledWith({
+        prompt: 'hello',
+        options: expect.objectContaining({
+          resume: sessionId,
+          cwd: '/project/from-session',
+        }),
+      })
     })
   })
 

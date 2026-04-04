@@ -389,3 +389,24 @@ This file tracks manual regression and feature verification steps.
 
 #### Rollback/Cleanup
 - Disconnect the WebSocket client or stop the dev server.
+
+### Feature: Existing Claude threads keep their original session cwd on follow-up turns
+
+#### Prerequisites
+- App is running from this repository.
+- Claude backend is authenticated.
+- An existing Claude thread is available from a project different from the current server `process.cwd()`.
+
+#### Steps
+1. Open an older Claude thread that already contains successful prior turns.
+2. Send a short follow-up prompt in that same thread.
+3. Observe the thread UI while the response streams.
+4. Refresh the thread or reopen it after completion.
+
+#### Expected Results
+- The follow-up user message is persisted in the existing thread.
+- Claude emits streamed response events instead of only `turn/started` then empty `turn/completed`.
+- The follow-up turn uses the thread session's original working directory and completes normally.
+
+#### Rollback/Cleanup
+- None.

@@ -1,4 +1,4 @@
-import { listSessions, query, getSessionMessages, renameSession, forkSession } from '@anthropic-ai/claude-agent-sdk'
+import { listSessions, query, getSessionMessages, getSessionInfo, renameSession, forkSession } from '@anthropic-ai/claude-agent-sdk'
 import type { SDKSessionInfo, Query, SDKMessage, SessionMessage } from '@anthropic-ai/claude-agent-sdk'
 import { scanClaudeSkills } from './claudeSkills.js'
 import { scanProjectFiles, readProjectFile, saveProjectFile } from './projectFiles.js'
@@ -211,34 +211,12 @@ export class ClaudeAdapter {
   private async handleThreadResume(params: RpcParams) {
     const requestedThreadId = params.threadId as string
     const threadId = this.resolveThreadId(requestedThreadId)
-    const abortController = new AbortController()
-
-    const q = query({
-      prompt: '',
-      options: {
-        resume: threadId,
-        permissionMode: 'bypassPermissions',
-        abortController,
-      },
-    })
-
-    let sessionId = ''
-    for await (const msg of q) {
-      if (msg.type === 'system' && msg.subtype === 'init') {
-        sessionId = msg.session_id
-        break
-      }
-      if (msg.type === 'result') break
+    const info = await getSessionInfo(threadId, {})
+    if (info?.cwd) {
+      this.threadCwdMap.set(threadId, info.cwd)
+      this.threadCwdMap.set(this.presentThreadId(threadId), info.cwd)
     }
-
-    if (!sessionId) sessionId = threadId
-    this.activeSessions.set(sessionId, { query: q, abortController })
-    const presentedSessionId = this.presentThreadId(sessionId)
-    if (presentedSessionId !== sessionId) {
-      this.activeSessions.set(presentedSessionId, { query: q, abortController })
-    }
-
-    return { thread: { id: presentedSessionId } }
+    return { thread: { id: this.presentThreadId(threadId) } }
   }
 
   private async handleThreadNameSet(params: RpcParams) {
@@ -715,6 +693,10 @@ export class ClaudeAdapter {
   }
 
   private sessionToThread(s: SDKSessionInfo) {
+    if (typeof (s as any).cwd === 'string' && (s as any).cwd.length > 0) {
+      this.threadCwdMap.set(s.sessionId, (s as any).cwd)
+      this.threadCwdMap.set(this.presentThreadId(s.sessionId), (s as any).cwd)
+    }
     const updatedAtSec = Math.floor(s.lastModified / 1000)
     return {
       id: this.presentThreadId(s.sessionId),
