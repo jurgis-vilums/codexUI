@@ -34,6 +34,7 @@
       </div>
       <ul v-if="filtered.length > 0" class="search-dropdown-list" role="listbox">
         <li v-for="(opt, idx) in filtered" :key="opt.value">
+          <hr v-if="opt.dividerBefore && idx > 0" class="search-dropdown-divider" />
           <button
             class="search-dropdown-option"
             :class="{
@@ -63,6 +64,7 @@ export type SearchDropdownOption = {
   value: string
   label: string
   description?: string
+  dividerBefore?: boolean
 }
 
 const props = defineProps<{
@@ -257,6 +259,14 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onDocumentPointe
 
 .search-dropdown-empty {
   @apply p-3 text-center text-sm text-zinc-400;
+}
+
+.search-dropdown-divider {
+  @apply my-1 mx-2 border-0 border-t border-slate-200;
+}
+
+:global(:root.dark) .search-dropdown-divider {
+  @apply border-zinc-700;
 }
 
 .search-dropdown-menu-wrap-up,

@@ -497,13 +497,22 @@ const modelOptions = computed(() =>
 
 const skillOptions = computed<SkillItem[]>(() => props.skills ?? [])
 const selectedSkillPaths = computed(() => selectedSkills.value.map((s) => s.path))
-const skillDropdownOptions = computed(() =>
-  (props.skills ?? []).map((s) => ({
-    value: s.path,
-    label: s.name,
-    description: s.description,
-  })),
-)
+const skillDropdownOptions = computed(() => {
+  const scopeOrder: Record<string, number> = { user: 0, project: 1 }
+  const sorted = [...(props.skills ?? [])].sort((a, b) =>
+    (scopeOrder[a.scope] ?? 99) - (scopeOrder[b.scope] ?? 99)
+  )
+  let lastScope = ''
+  return sorted.map((s) => {
+    const dividerBefore = lastScope !== '' && s.scope !== lastScope
+    lastScope = s.scope
+    return {
+      value: s.path,
+      label: s.name,
+      dividerBefore,
+    }
+  })
+})
 
 const canSubmit = computed(() => {
   if (props.disabled) return false
