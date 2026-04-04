@@ -39,6 +39,8 @@ onMounted(render)
 </script>
 
 <style scoped>
+@reference "tailwindcss";
+
 .diff-viewer {
   @apply overflow-auto h-full text-sm;
 }
