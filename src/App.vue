@@ -147,6 +147,17 @@
               @start-new-thread="onStartNewThreadFromToolbar"
             />
           </template>
+          <template #actions>
+            <button
+              type="button"
+              class="terminal-toggle-btn"
+              :class="{ 'is-active': isTerminalOpen }"
+              title="Toggle terminal (Ctrl+`)"
+              @click="toggleTerminal"
+            >
+              <IconTablerTerminal />
+            </button>
+          </template>
         </ContentHeader>
 
         <div v-if="authBanner" class="auth-banner">
@@ -319,6 +330,7 @@ import ComposerDropdown from './components/content/ComposerDropdown.vue'
 import ComposerRuntimeDropdown from './components/content/ComposerRuntimeDropdown.vue'
 import SkillsHub from './components/content/SkillsHub.vue'
 import TerminalPanel from './components/content/TerminalPanel.vue'
+import IconTablerTerminal from './components/icons/IconTablerTerminal.vue'
 import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vue'
 import IconTablerSearch from './components/icons/IconTablerSearch.vue'
 import IconTablerSettings from './components/icons/IconTablerSettings.vue'
@@ -1698,6 +1710,22 @@ async function submitFirstMessageForNewThread(
 
 <style scoped>
 @reference "tailwindcss";
+
+.terminal-toggle-btn {
+  @apply flex items-center justify-center w-8 h-8 rounded-md text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer text-lg;
+}
+
+.terminal-toggle-btn.is-active {
+  @apply text-slate-900 bg-slate-100;
+}
+
+:global(:root.dark) .terminal-toggle-btn {
+  @apply text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800;
+}
+
+:global(:root.dark) .terminal-toggle-btn.is-active {
+  @apply text-zinc-100 bg-zinc-800;
+}
 
 .sidebar-root {
   @apply h-full flex flex-col select-none;
