@@ -1,6 +1,6 @@
 import { readdir, stat, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join, basename } from 'node:path'
+import { join, basename, resolve } from 'node:path'
 
 export type ProjectFile = {
   name: string
@@ -164,14 +164,32 @@ export async function scanProjectFiles(cwd: string): Promise<ProjectFile[]> {
 /**
  * Read a file's content. Only allows files under .claude/ directories or root config files.
  */
-export async function readProjectFile(path: string): Promise<{ content: string } | null> {
-  const norm = path.replace(/\\/g, '/')
-  const allowed = norm.includes('/.claude/') || norm.includes('\\.claude\\')
-    || ROOT_FILES.some(f => norm.endsWith('/' + f) || norm.endsWith('\\' + f))
-  if (!allowed) return null
+export async function readProjectFile(filePath: string): Promise<{ content: string } | null> {
+  // Resolve to absolute path first to prevent ../ traversal bypasses
+  const resolved = resolve(filePath)
+  const norm = resolved.replace(/\\/g, '/')
+
+  // Check if resolved path is under an allowed directory
+  const homeClaudeDir = join(homedir(), '.claude').replace(/\\/g, '/')
+  const homeCodexDir = join(homedir(), '.codex').replace(/\\/g, '/')
+  const isUnderHomeClaude = norm.startsWith(homeClaudeDir + '/')
+  const isUnderHomeCodex = norm.startsWith(homeCodexDir + '/')
+  const isRootFile = ROOT_FILES.some(f => norm.endsWith('/' + f))
+
+  if (!isUnderHomeClaude && !isUnderHomeCodex && !norm.includes('/.claude/') && !norm.includes('/.codex/') && !isRootFile) {
+    return null
+  }
+
+  // Double-check: after resolution, the path should still contain .claude or .codex
+  // This prevents ../ traversal that passes the initial check
+  if (!isUnderHomeClaude && !isUnderHomeCodex && !isRootFile) {
+    if (!norm.includes('/.claude/') && !norm.includes('/.codex/')) {
+      return null
+    }
+  }
 
   try {
-    const content = await readFile(path, 'utf-8')
+    const content = await readFile(resolved, 'utf-8')
     return { content }
   } catch {
     return null
@@ -181,14 +199,31 @@ export async function readProjectFile(path: string): Promise<{ content: string }
 /**
  * Save file content. Same security restrictions as read.
  */
-export async function saveProjectFile(path: string, content: string): Promise<{ ok: boolean; error?: string }> {
-  const norm = path.replace(/\\/g, '/')
-  const allowed = norm.includes('/.claude/') || norm.includes('\\.claude\\')
-    || ROOT_FILES.some(f => norm.endsWith('/' + f) || norm.endsWith('\\' + f))
-  if (!allowed) return { ok: false, error: 'Path not allowed' }
+export async function saveProjectFile(filePath: string, content: string): Promise<{ ok: boolean; error?: string }> {
+  // Resolve to absolute path first to prevent ../ traversal bypasses
+  const resolved = resolve(filePath)
+  const norm = resolved.replace(/\\/g, '/')
+
+  // Check if resolved path is under an allowed directory
+  const homeClaudeDir = join(homedir(), '.claude').replace(/\\/g, '/')
+  const homeCodexDir = join(homedir(), '.codex').replace(/\\/g, '/')
+  const isUnderHomeClaude = norm.startsWith(homeClaudeDir + '/')
+  const isUnderHomeCodex = norm.startsWith(homeCodexDir + '/')
+  const isRootFile = ROOT_FILES.some(f => norm.endsWith('/' + f))
+
+  if (!isUnderHomeClaude && !isUnderHomeCodex && !norm.includes('/.claude/') && !norm.includes('/.codex/') && !isRootFile) {
+    return { ok: false, error: 'Path not allowed' }
+  }
+
+  // Double-check: after resolution, the path should still contain .claude or .codex
+  if (!isUnderHomeClaude && !isUnderHomeCodex && !isRootFile) {
+    if (!norm.includes('/.claude/') && !norm.includes('/.codex/')) {
+      return { ok: false, error: 'Path not allowed' }
+    }
+  }
 
   try {
-    await writeFile(path, content, 'utf-8')
+    await writeFile(resolved, content, 'utf-8')
     return { ok: true }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }

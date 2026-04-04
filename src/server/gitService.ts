@@ -132,14 +132,34 @@ export async function handleGitAction(msg: GitAction, cwd: string): Promise<{ ac
         return { action: 'status', data: files }
       }
       case 'diff': {
+        if (msg.path !== undefined) {
+          if (typeof msg.path !== 'string') {
+            return { action: msg.action, error: 'Invalid path parameter' }
+          }
+          if (msg.path.includes('..')) {
+            return { action: msg.action, error: 'Path traversal not allowed' }
+          }
+        }
         const diff = msg.staged ? await gitDiffStaged(cwd, msg.path) : await gitDiffUnstaged(cwd, msg.path)
         return { action: 'diff', data: diff }
       }
       case 'stage': {
+        if (!msg.path || typeof msg.path !== 'string') {
+          return { action: msg.action, error: 'Missing required path parameter' }
+        }
+        if (msg.path.includes('..')) {
+          return { action: msg.action, error: 'Path traversal not allowed' }
+        }
         await gitStageFile(cwd, msg.path)
         return { action: 'stage' }
       }
       case 'unstage': {
+        if (!msg.path || typeof msg.path !== 'string') {
+          return { action: msg.action, error: 'Missing required path parameter' }
+        }
+        if (msg.path.includes('..')) {
+          return { action: msg.action, error: 'Path traversal not allowed' }
+        }
         await gitUnstageFile(cwd, msg.path)
         return { action: 'unstage' }
       }
@@ -152,6 +172,12 @@ export async function handleGitAction(msg: GitAction, cwd: string): Promise<{ ac
         return { action: 'unstage-all' }
       }
       case 'revert': {
+        if (!msg.path || typeof msg.path !== 'string') {
+          return { action: msg.action, error: 'Missing required path parameter' }
+        }
+        if (msg.path.includes('..')) {
+          return { action: msg.action, error: 'Path traversal not allowed' }
+        }
         await gitRevertFile(cwd, msg.path)
         return { action: 'revert' }
       }
