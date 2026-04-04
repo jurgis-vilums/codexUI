@@ -129,7 +129,13 @@ function connectWebSocket(): void {
     } catch { /* ignore */ }
   }
 
-  ws.onclose = () => { ws = null }
+  ws.onclose = () => {
+    for (const [id, cb] of pendingCallbacks) {
+      cb({ error: 'Connection closed' })
+    }
+    pendingCallbacks.clear()
+    ws = null
+  }
 }
 
 let reqId = 0
@@ -141,7 +147,14 @@ function sendGit(action: Record<string, unknown>): Promise<unknown> {
       return
     }
     const id = String(++reqId)
-    pendingCallbacks.set(id, resolve)
+    const timer = setTimeout(() => {
+      pendingCallbacks.delete(id)
+      resolve({ error: 'Request timed out' })
+    }, 10000)
+    pendingCallbacks.set(id, (data) => {
+      clearTimeout(timer)
+      resolve(data)
+    })
     ws.send(JSON.stringify({ ...action, _id: id }))
   })
 }
@@ -179,6 +192,7 @@ async function unstageAll(): Promise<void> {
 }
 
 async function revertAll(): Promise<void> {
+  if (!confirm('Revert all unstaged changes? This cannot be undone.')) return
   await sendGit({ action: 'revert-all' })
   await refresh()
 }
