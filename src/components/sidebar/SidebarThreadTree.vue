@@ -331,6 +331,29 @@
             <span class="project-empty">No threads</span>
           </SidebarMenuRow>
 
+          <div v-if="getProjectFiles(group.projectName).length > 0" class="project-config-section">
+            <template v-for="source in getConfigSources(group.projectName)" :key="source.label">
+              <button
+                v-if="getConfigSources(group.projectName).length > 1"
+                class="config-source-toggle"
+                type="button"
+                @click="toggleConfigSource(group.projectName, source.label)"
+              >
+                <span class="config-source-chevron">{{ isConfigSourceCollapsed(group.projectName, source.label) ? '▸' : '▾' }}</span>
+                <span class="config-source-label">{{ source.label }}</span>
+                <span class="config-source-count">{{ source.files.length }}</span>
+              </button>
+              <ul v-if="!isConfigSourceCollapsed(group.projectName, source.label)" class="config-file-list">
+                <li v-for="file in source.files" :key="file.path" class="config-file-item">
+                  <button class="config-file-button" type="button" @click="$emit('open-file', { path: file.path, name: file.name })" :title="file.description || file.name">
+                    <span class="config-file-icon">{{ getCategoryIcon(file.category) }}</span>
+                    <span class="config-file-name">{{ file.name }}</span>
+                  </button>
+                </li>
+              </ul>
+            </template>
+          </div>
+
           <SidebarMenuRow v-if="hasHiddenThreads(group)" class="thread-show-more-row">
             <template #left>
               <span class="thread-show-more-spacer" />
@@ -402,6 +425,7 @@ const props = defineProps<{
   isLoading: boolean
   searchQuery: string
   searchMatchedThreadIds: string[] | null
+  projectFiles?: Record<string, Array<{ name: string; path: string; category: string; description?: string }>>
 }>()
 
 const emit = defineEmits<{
@@ -415,6 +439,7 @@ const emit = defineEmits<{
   'reorder-project': [payload: { projectName: string; toIndex: number }]
   'export-thread': [threadId: string]
   'fork-thread': [threadId: string]
+  'open-file': [payload: { path: string; name: string }]
 }>()
 
 type PendingProjectDrag = {
@@ -488,6 +513,46 @@ const projectGroupResizeObserver =
         }
       })
     : null
+const collapsedConfigSources = ref<Record<string, Set<string>>>({})
+
+function getProjectFiles(projectName: string) {
+  return props.projectFiles?.[projectName] ?? []
+}
+
+function getConfigSources(projectName: string) {
+  const files = getProjectFiles(projectName)
+  const claudeFiles = files.filter(f => f.path.includes('.claude'))
+  const codexFiles = files.filter(f => f.path.includes('.codex'))
+  const rootFiles = files.filter(f => !f.path.includes('.claude') && !f.path.includes('.codex'))
+
+  const sources: Array<{ label: string; files: typeof files }> = []
+  if (rootFiles.length > 0) sources.push({ label: 'Project', files: rootFiles })
+  if (claudeFiles.length > 0) sources.push({ label: '.claude', files: claudeFiles })
+  if (codexFiles.length > 0) sources.push({ label: '.codex', files: codexFiles })
+  return sources
+}
+
+function toggleConfigSource(projectName: string, label: string) {
+  const set = collapsedConfigSources.value[projectName] ?? new Set()
+  if (set.has(label)) set.delete(label)
+  else set.add(label)
+  collapsedConfigSources.value = { ...collapsedConfigSources.value, [projectName]: set }
+}
+
+function isConfigSourceCollapsed(projectName: string, label: string) {
+  return collapsedConfigSources.value[projectName]?.has(label) ?? false
+}
+
+function getCategoryIcon(category: string) {
+  switch (category) {
+    case 'root': return '📄'
+    case 'memory': return '🧠'
+    case 'skill': return '⚡'
+    case 'config': return '⚙️'
+    default: return '📁'
+  }
+}
+
 const COLLAPSED_STORAGE_KEY = 'codex-web-local.collapsed-projects.v1'
 
 function loadCollapsedState(): Record<string, boolean> {
@@ -1662,5 +1727,53 @@ onBeforeUnmount(() => {
 
 .rename-thread-button-danger {
   @apply bg-rose-600 text-white hover:bg-rose-700;
+}
+
+.project-config-section {
+  @apply mt-1 mb-2;
+}
+
+.config-source-toggle {
+  @apply flex items-center gap-1 w-full px-3 py-1 text-xs font-medium text-slate-400 hover:text-slate-600 cursor-pointer;
+}
+
+.config-source-chevron {
+  @apply w-3 text-center text-[10px];
+}
+
+.config-source-label {
+  @apply font-mono text-xs;
+}
+
+.config-source-count {
+  @apply ml-auto text-[10px] opacity-50;
+}
+
+.config-file-list {
+  @apply list-none p-0 m-0;
+}
+
+.config-file-item {
+  @apply m-0;
+}
+
+.config-file-button {
+  @apply flex items-center gap-1.5 w-full px-4 py-0.5 text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-50 cursor-pointer truncate;
+}
+
+.config-file-icon {
+  @apply text-[11px] flex-shrink-0;
+}
+
+.config-file-name {
+  @apply truncate;
+}
+
+:global(:root.dark) .config-source-toggle {
+  @apply text-zinc-500 hover:text-zinc-300;
+}
+
+:global(:root.dark) .config-file-button {
+  @apply text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800;
 }
 </style>
