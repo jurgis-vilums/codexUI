@@ -11,6 +11,7 @@ export class ClaudeAdapter {
   private authenticated = false
   private defaultModel: string | undefined = undefined
   private activeSessions = new Map<string, { query: Query; abortController: AbortController }>()
+  private activeStreams = new Map<string, Promise<void>>() // threadId → processStream promise
   private threadIdMap = new Map<string, string>() // pendingId → realSessionId
   private notificationListeners = new Set<NotificationListener>()
 
@@ -347,13 +348,10 @@ export class ClaudeAdapter {
       .map((i) => i.text)
       .join('\n')
 
-    // Abort any previous query for this thread before starting a new one
-    const prevSession = this.activeSessions.get(threadId)
-    if (prevSession) {
-      prevSession.abortController.abort()
-      this.activeSessions.delete(threadId)
-      // Give the SDK time to clean up the previous session
-      await new Promise(r => setTimeout(r, 1000))
+    // Wait for any previous stream to finish before starting a new one
+    const prevStream = this.activeStreams.get(threadId)
+    if (prevStream) {
+      await prevStream.catch(() => {})
     }
 
     const abortController = new AbortController()
@@ -397,9 +395,13 @@ export class ClaudeAdapter {
 
     // Process stream in background — return turn ID immediately
     // Notifications stream to the frontend via WebSocket
-    void this.processStream(threadId, turnId, q).catch((err) => {
+    const streamPromise = this.processStream(threadId, turnId, q).catch((err) => {
       console.warn(`[claude-adapter] stream error for turn ${turnId}:`, err)
+    }).finally(() => {
+      this.activeStreams.delete(threadId)
+      this.activeSessions.delete(threadId)
     })
+    this.activeStreams.set(threadId, streamPromise)
 
     return {
       turn: { id: turnId },
@@ -424,16 +426,23 @@ export class ClaudeAdapter {
 
     try {
       for await (const msg of q) {
+        console.log(`[stream] type=${msg.type} subtype=${(msg as any).subtype ?? ''} threadId=${threadId}`)
+
         // Capture real session ID from init message
         if (msg.type === 'system' && (msg as any).subtype === 'init') {
           const realId = (msg as any).session_id
           if (realId && realId !== threadId) {
             this.threadIdMap.set(threadId, realId)
-            // Also move the active session entry to the real ID
+            // Move active session and stream entries to the real ID
             const session = this.activeSessions.get(threadId)
             if (session) {
               this.activeSessions.set(realId, session)
               this.activeSessions.delete(threadId)
+            }
+            const stream = this.activeStreams.get(threadId)
+            if (stream) {
+              this.activeStreams.set(realId, stream)
+              this.activeStreams.delete(threadId)
             }
           }
           continue
@@ -485,7 +494,8 @@ export class ClaudeAdapter {
         }
 
         if (msg.type === 'result') {
-          break
+          // Don't break — let the generator end naturally
+          // Breaking early can prevent the SDK from cleaning up the session properly
         }
       }
     } finally {
