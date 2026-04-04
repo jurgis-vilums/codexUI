@@ -391,8 +391,11 @@ export class ClaudeAdapter {
       turn: { id: turnId, status: 'inProgress', items: [], error: null },
     })
 
-    // Process stream and emit notifications before returning
-    await this.processStream(threadId, turnId, q)
+    // Process stream in background — return turn ID immediately
+    // Notifications stream to the frontend via WebSocket
+    void this.processStream(threadId, turnId, q).catch((err) => {
+      console.warn(`[claude-adapter] stream error for turn ${turnId}:`, err)
+    })
 
     return {
       turn: { id: turnId },

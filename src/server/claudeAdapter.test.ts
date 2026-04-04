@@ -471,6 +471,9 @@ describe('ClaudeAdapter', () => {
         input: [{ type: 'text', text: 'Explain TypeScript' }],
       }) as any
 
+      // Wait for background stream to complete
+      await new Promise(r => setTimeout(r, 50))
+
       // Should return a turn object
       expect(result.turn).toBeDefined()
       expect(result.turn.id).toBeDefined()
@@ -768,6 +771,9 @@ describe('ClaudeAdapter', () => {
         threadId,
         input: [{ type: 'text', text: 'Say hello' }],
       })
+
+      // Wait for background stream to complete
+      await new Promise(r => setTimeout(r, 50))
 
       const deltas = notifications.filter(n => n.method === 'item/agentMessage/delta')
       expect(deltas).toHaveLength(2)
