@@ -11,6 +11,7 @@ export class ClaudeAdapter {
   private authenticated = false
   private defaultModel: string | undefined = undefined
   private activeSessions = new Map<string, { query: Query; abortController: AbortController }>()
+  private threadIdMap = new Map<string, string>() // pendingId → realSessionId
   private notificationListeners = new Set<NotificationListener>()
 
   private async ensureInitialized(): Promise<void> {
@@ -161,6 +162,11 @@ export class ClaudeAdapter {
     return () => { this.notificationListeners.delete(listener) }
   }
 
+  /** Resolve a thread ID through the pending→real mapping */
+  private resolveThreadId(threadId: string): string {
+    return this.threadIdMap.get(threadId) ?? threadId
+  }
+
   private emitNotification(method: string, params: unknown): void {
     for (const listener of this.notificationListeners) {
       listener({ method, params })
@@ -177,41 +183,18 @@ export class ClaudeAdapter {
     }
   }
 
+  private pendingThreads = new Map<string, { cwd: string; model?: string }>()
+
   private async handleThreadStart(params: RpcParams) {
     const cwd = typeof params.cwd === 'string' ? params.cwd : process.cwd()
     const model = typeof params.model === 'string' ? params.model : this.defaultModel
-    const abortController = new AbortController()
 
-    const q = query({
-      prompt: '',
-      options: {
-        cwd,
-        model,
-        permissionMode: 'bypassPermissions',
-        abortController,
-      },
-    })
-
-    // Drain until we get the system init message with session_id
-    let sessionId = ''
-    for await (const msg of q) {
-      if (msg.type === 'system' && msg.subtype === 'init') {
-        sessionId = msg.session_id
-        break
-      }
-      if (msg.type === 'result') {
-        break
-      }
-    }
-
-    if (!sessionId) {
-      throw new Error('thread/start: failed to get session id from Claude')
-    }
-
-    this.activeSessions.set(sessionId, { query: q, abortController })
+    // Generate a temporary ID — the real session ID comes from the first turn/start
+    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    this.pendingThreads.set(tempId, { cwd, model })
 
     return {
-      thread: { id: sessionId },
+      thread: { id: tempId },
     }
   }
 
@@ -244,14 +227,14 @@ export class ClaudeAdapter {
   }
 
   private async handleThreadNameSet(params: RpcParams) {
-    const threadId = params.threadId as string
+    const threadId = this.resolveThreadId(params.threadId as string)
     const name = params.name as string
     await renameSession(threadId, name, {})
     return {}
   }
 
   private async handleThreadFork(params: RpcParams) {
-    const threadId = params.threadId as string
+    const threadId = this.resolveThreadId(params.threadId as string)
     const result = await forkSession(threadId, {})
     return {
       thread: { id: result.sessionId },
@@ -268,7 +251,7 @@ export class ClaudeAdapter {
   }
 
   private async handleThreadRollback(params: RpcParams) {
-    const threadId = params.threadId as string
+    const threadId = this.resolveThreadId(params.threadId as string)
     const numTurns = typeof params.numTurns === 'number' ? params.numTurns : 1
 
     // Find the UUID of the last message before the rollback point.
@@ -330,7 +313,7 @@ export class ClaudeAdapter {
   }
 
   private async handleThreadRead(params: RpcParams) {
-    const threadId = params.threadId as string
+    const threadId = this.resolveThreadId(params.threadId as string)
     const includeTurns = params.includeTurns !== false
 
     let turns: unknown[] = []
@@ -357,28 +340,39 @@ export class ClaudeAdapter {
   }
 
   private async handleTurnStart(params: RpcParams) {
-    const threadId = params.threadId as string
+    const threadId = this.resolveThreadId(params.threadId as string)
     const input = params.input as Array<{ type: string; text?: string }>
     const prompt = input
       .filter((i) => i.type === 'text' && i.text)
       .map((i) => i.text)
       .join('\n')
 
-    const session = this.activeSessions.get(threadId)
-    const cwd = typeof params.cwd === 'string' ? params.cwd : process.cwd()
-    const abortController = session?.abortController ?? new AbortController()
+    const abortController = new AbortController()
 
-    // Start a new query for this turn (resume the session)
-    const q = query({
-      prompt,
-      options: {
-        cwd,
-        resume: threadId,
-        permissionMode: 'bypassPermissions',
-        includePartialMessages: true,
-        abortController,
-      },
-    })
+    // Check if this is a pending thread (first message — create new session)
+    const pending = this.pendingThreads.get(threadId)
+    const isNewSession = !!pending
+    const cwd = pending?.cwd ?? (typeof params.cwd === 'string' ? params.cwd : process.cwd())
+    const model = pending?.model ?? this.defaultModel
+
+    const queryOptions: Record<string, unknown> = {
+      cwd,
+      model,
+      permissionMode: 'bypassPermissions',
+      includePartialMessages: true,
+      abortController,
+    }
+
+    // Only resume if this is an existing session (not a pending new thread)
+    if (!isNewSession) {
+      queryOptions.resume = threadId
+    }
+
+    const q = query({ prompt, options: queryOptions as any })
+
+    if (pending) {
+      this.pendingThreads.delete(threadId)
+    }
 
     // Store the active session
     this.activeSessions.set(threadId, { query: q, abortController })
@@ -403,7 +397,7 @@ export class ClaudeAdapter {
   }
 
   private async handleTurnInterrupt(params: RpcParams) {
-    const threadId = params.threadId as string
+    const threadId = this.resolveThreadId(params.threadId as string)
     const session = this.activeSessions.get(threadId)
 
     if (!session) {
@@ -420,6 +414,15 @@ export class ClaudeAdapter {
 
     try {
       for await (const msg of q) {
+        // Capture real session ID from init message
+        if (msg.type === 'system' && (msg as any).subtype === 'init') {
+          const realId = (msg as any).session_id
+          if (realId && realId !== threadId) {
+            this.threadIdMap.set(threadId, realId)
+          }
+          continue
+        }
+
         if (msg.type === 'stream_event') {
           const event = (msg as any).event
           const uuid = (msg as any).uuid ?? `item-${Date.now()}`

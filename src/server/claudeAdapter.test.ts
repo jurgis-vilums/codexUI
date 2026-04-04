@@ -142,60 +142,15 @@ describe('ClaudeAdapter', () => {
   })
 
   describe('thread/start', () => {
-    it('creates a new session and returns thread id', async () => {
-      // query() returns an async generator that yields SDKSystemMessage first
-      const fakeSessionId = 'sess-new-001'
-      const fakeQuery = (async function* () {
-        yield {
-          type: 'system',
-          subtype: 'init',
-          session_id: fakeSessionId,
-          cwd: '/home/user/project',
-          model: 'claude-opus-4-1',
-          tools: [],
-          mcp_servers: [],
-          permissionMode: 'bypassPermissions',
-          slash_commands: [],
-          skills: [],
-          output_style: 'concise',
-          plugins: [],
-          uuid: '00000000-0000-0000-0000-000000000001',
-          claude_code_version: '1.0.0',
-          apiKeySource: 'user',
-        }
-        yield {
-          type: 'result',
-          subtype: 'success',
-          session_id: fakeSessionId,
-          result: '',
-          uuid: '00000000-0000-0000-0000-000000000002',
-          duration_ms: 0,
-          duration_api_ms: 0,
-          is_error: false,
-          num_turns: 0,
-          stop_reason: null,
-          total_cost_usd: 0,
-          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-          modelUsage: {},
-          permission_denials: [],
-        }
-      })()
-
-      vi.mocked(mockQuery).mockReturnValue(fakeQuery as any)
-
+    it('returns a pending thread id without calling query', async () => {
       const result = await adapter.rpc('thread/start', {
         cwd: '/home/user/project',
       }) as any
 
-      expect(mockQuery).toHaveBeenCalledWith({
-        prompt: '',
-        options: expect.objectContaining({
-          cwd: '/home/user/project',
-          permissionMode: 'bypassPermissions',
-        }),
-      })
-
-      expect(result.thread.id).toBe(fakeSessionId)
+      // Should NOT call query — session is created lazily on first turn/start
+      expect(mockQuery).not.toHaveBeenCalled()
+      expect(result.thread.id).toBeDefined()
+      expect(typeof result.thread.id).toBe('string')
     })
   })
 
@@ -408,26 +363,11 @@ describe('ClaudeAdapter', () => {
 
   describe('turn/start', () => {
     it('sends prompt via query and emits turn notifications', async () => {
-      const threadId = 'sess-turn-001'
       const turnId = 'turn-new-001'
 
       // First we need a session to exist (via thread/start)
-      const initQuery = (async function* () {
-        yield {
-          type: 'system',
-          subtype: 'init',
-          session_id: threadId,
-          cwd: '/project',
-          model: 'claude-opus-4-1',
-          tools: [], mcp_servers: [], permissionMode: 'bypassPermissions',
-          slash_commands: [], skills: [], output_style: 'concise', plugins: [],
-          uuid: '00000000-0000-0000-0000-000000000010',
-          claude_code_version: '1.0.0', apiKeySource: 'user',
-        }
-      })()
-
-      vi.mocked(mockQuery).mockReturnValueOnce(initQuery as any)
-      await adapter.rpc('thread/start', { cwd: '/project' })
+      const startResult = await adapter.rpc('thread/start', { cwd: '/project' }) as any
+      const threadId = startResult.thread.id
 
       // Now mock query for the turn
       const turnQuery = (async function* () {
@@ -521,23 +461,22 @@ describe('ClaudeAdapter', () => {
 
   describe('turn/interrupt', () => {
     it('aborts the active session query', async () => {
-      const threadId = 'sess-interrupt-001'
-      const abortController = new AbortController()
-
       // Set up a session via thread/start
-      const initQuery = (async function* () {
-        yield {
-          type: 'system', subtype: 'init', session_id: threadId,
-          cwd: '/project', model: 'claude-opus-4-1',
-          tools: [], mcp_servers: [], permissionMode: 'bypassPermissions',
-          slash_commands: [], skills: [], output_style: 'concise', plugins: [],
-          uuid: '00000000-0000-0000-0000-000000000020',
-          claude_code_version: '1.0.0', apiKeySource: 'user',
-        }
-      })()
+      const startResult = await adapter.rpc('thread/start', { cwd: '/project' }) as any
+      const threadId = startResult.thread.id
 
-      vi.mocked(mockQuery).mockReturnValueOnce(initQuery as any)
-      await adapter.rpc('thread/start', { cwd: '/project' })
+      // Now do a turn/start to create an active session
+      const turnQuery = (async function* () {
+        // Simulate a slow stream that won't complete before interrupt
+        await new Promise(r => setTimeout(r, 10000))
+        yield { type: 'result', subtype: 'success', session_id: threadId,
+          uuid: '00000000-0000-0000-0000-000000000021', result: '',
+          duration_ms: 0, duration_api_ms: 0, is_error: false, num_turns: 1,
+          stop_reason: 'end_turn', total_cost_usd: 0, usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          modelUsage: {}, permission_denials: [] }
+      })()
+      vi.mocked(mockQuery).mockReturnValueOnce(turnQuery as any)
+      await adapter.rpc('turn/start', { threadId, input: [{ type: 'text', text: 'Hello' }] })
 
       // Now call turn/interrupt
       const result = await adapter.rpc('turn/interrupt', {
@@ -664,26 +603,33 @@ describe('ClaudeAdapter', () => {
   })
 
   describe('setDefaultModel', () => {
-    it('stores the model and uses it in subsequent thread/start calls', async () => {
+    it('stores the model and uses it in subsequent turn/start calls', async () => {
       await adapter.rpc('setDefaultModel', { model: 'claude-haiku-4-5-20251001' })
 
+      // thread/start no longer calls query; it just stores cwd and returns a pending thread ID
+      const startResult = await adapter.rpc('thread/start', { cwd: '/project' }) as any
+      const threadId = startResult.thread.id
+
+      // The model should be forwarded when turn/start triggers the actual query
       const fakeQuery = (async function* () {
         yield {
-          type: 'system', subtype: 'init', session_id: 'sess-model-001',
-          cwd: '/project', model: 'claude-haiku-4-5-20251001',
-          tools: [], mcp_servers: [], permissionMode: 'bypassPermissions',
-          slash_commands: [], skills: [], output_style: 'concise', plugins: [],
+          type: 'result', subtype: 'success', session_id: threadId,
           uuid: '00000000-0000-0000-0000-000000000040',
-          claude_code_version: '1.0.0', apiKeySource: 'user',
+          result: '', duration_ms: 0, duration_api_ms: 0,
+          is_error: false, num_turns: 1, stop_reason: 'end_turn',
+          total_cost_usd: 0, usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          modelUsage: {}, permission_denials: [],
         }
       })()
-
       vi.mocked(mockQuery).mockReturnValueOnce(fakeQuery as any)
 
-      await adapter.rpc('thread/start', { cwd: '/project' })
+      await adapter.rpc('turn/start', {
+        threadId,
+        input: [{ type: 'text', text: 'Hello' }],
+      })
 
       expect(mockQuery).toHaveBeenCalledWith({
-        prompt: '',
+        prompt: 'Hello',
         options: expect.objectContaining({
           model: 'claude-haiku-4-5-20251001',
         }),
@@ -707,21 +653,9 @@ describe('ClaudeAdapter', () => {
 
   describe('streaming deltas', () => {
     it('emits item/agentMessage/delta for partial text blocks', async () => {
-      const threadId = 'sess-stream-001'
-
       // Set up session
-      const initQ = (async function* () {
-        yield {
-          type: 'system', subtype: 'init', session_id: threadId,
-          cwd: '/project', model: 'claude-opus-4-1',
-          tools: [], mcp_servers: [], permissionMode: 'bypassPermissions',
-          slash_commands: [], skills: [], output_style: 'concise', plugins: [],
-          uuid: '00000000-0000-0000-0000-000000000050',
-          claude_code_version: '1.0.0', apiKeySource: 'user',
-        }
-      })()
-      vi.mocked(mockQuery).mockReturnValueOnce(initQ as any)
-      await adapter.rpc('thread/start', { cwd: '/project' })
+      const startResult = await adapter.rpc('thread/start', { cwd: '/project' }) as any
+      const threadId = startResult.thread.id
 
       // Turn query with stream_event (partial messages)
       const turnQ = (async function* () {
@@ -784,21 +718,9 @@ describe('ClaudeAdapter', () => {
 
   describe('tool use rendering', () => {
     it('emits commandExecution items for Bash tool_use blocks', async () => {
-      const threadId = 'sess-tool-001'
-
       // Set up session
-      const initQ = (async function* () {
-        yield {
-          type: 'system', subtype: 'init', session_id: threadId,
-          cwd: '/project', model: 'claude-opus-4-1',
-          tools: [], mcp_servers: [], permissionMode: 'bypassPermissions',
-          slash_commands: [], skills: [], output_style: 'concise', plugins: [],
-          uuid: '00000000-0000-0000-0000-000000000060',
-          claude_code_version: '1.0.0', apiKeySource: 'user',
-        }
-      })()
-      vi.mocked(mockQuery).mockReturnValueOnce(initQ as any)
-      await adapter.rpc('thread/start', { cwd: '/project' })
+      const startResult1 = await adapter.rpc('thread/start', { cwd: '/project' }) as any
+      const threadId = startResult1.thread.id
 
       // Turn with assistant message containing tool_use for Bash
       const turnQ = (async function* () {
@@ -850,20 +772,9 @@ describe('ClaudeAdapter', () => {
     })
 
     it('emits fileChange items for Edit tool_use blocks', async () => {
-      const threadId = 'sess-tool-002'
-
-      const initQ = (async function* () {
-        yield {
-          type: 'system', subtype: 'init', session_id: threadId,
-          cwd: '/project', model: 'claude-opus-4-1',
-          tools: [], mcp_servers: [], permissionMode: 'bypassPermissions',
-          slash_commands: [], skills: [], output_style: 'concise', plugins: [],
-          uuid: '00000000-0000-0000-0000-000000000070',
-          claude_code_version: '1.0.0', apiKeySource: 'user',
-        }
-      })()
-      vi.mocked(mockQuery).mockReturnValueOnce(initQ as any)
-      await adapter.rpc('thread/start', { cwd: '/project' })
+      // Set up session
+      const startResult2 = await adapter.rpc('thread/start', { cwd: '/project' }) as any
+      const threadId = startResult2.thread.id
 
       const turnQ = (async function* () {
         yield {
