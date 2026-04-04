@@ -352,7 +352,7 @@
                 <ul v-if="!isConfigSourceCollapsed(group.projectName, source.label)" class="config-file-list">
                   <li v-for="file in source.files" :key="file.path" class="config-file-item">
                     <button class="config-file-button" type="button" @click="$emit('open-file', { path: file.path, name: file.name })" :title="file.description || file.name">
-                      <span class="config-file-icon">{{ getCategoryIcon(file.category) }}</span>
+                      <span class="config-file-icon">{{ getCategoryIcon(file.category, file.name) }}</span>
                       <span class="config-file-name">{{ file.name }}</span>
                     </button>
                   </li>
@@ -563,14 +563,13 @@ function isConfigSourceCollapsed(projectName: string, label: string) {
   return collapsedConfigSources.value[projectName]?.has(label) ?? false
 }
 
-function getCategoryIcon(category: string) {
-  switch (category) {
-    case 'root': return '📄'
-    case 'memory': return '🧠'
-    case 'skill': return '⚡'
-    case 'config': return '⚙️'
-    default: return '📁'
-  }
+function getCategoryIcon(category: string, name: string) {
+  if (name === 'CLAUDE.md') return '📝'
+  if (name === 'AGENTS.md' || name === 'GEMINI.md') return '📋'
+  if (category === 'memory') return '🧠'
+  if (category === 'skill') return '🛠️'
+  if (category === 'config') return '⚙️'
+  return '📄'
 }
 
 const COLLAPSED_STORAGE_KEY = 'codex-web-local.collapsed-projects.v1'
