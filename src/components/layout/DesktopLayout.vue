@@ -24,7 +24,7 @@
     </template>
 
     <section class="desktop-main">
-      <div class="desktop-main-left">
+      <div class="desktop-main-left" v-if="!(isMobile && isDiffPanelOpen)">
         <div class="desktop-main-content" :style="isTerminalOpen ? { flex: '1 1 0', minHeight: '0' } : { flex: '1 1 0' }">
           <slot name="content" />
         </div>
@@ -42,12 +42,13 @@
       </div>
       <template v-if="isDiffPanelOpen">
         <button
+          v-if="!isMobile"
           class="diff-resize-handle"
           type="button"
           aria-label="Resize diff panel"
           @mousedown="onDiffResizeHandleMouseDown"
         />
-        <div class="desktop-diff-panel" :style="{ width: diffPanelWidth + 'px' }">
+        <div class="desktop-diff-panel" :style="isMobile ? {} : { width: diffPanelWidth + 'px' }">
           <slot name="diff" />
         </div>
       </template>
@@ -278,6 +279,10 @@ function onResizeHandleMouseDown(event: MouseEvent): void {
 
 .desktop-diff-panel {
   @apply flex-shrink-0 overflow-hidden;
+}
+
+.desktop-layout.is-mobile .desktop-diff-panel {
+  @apply flex-1;
 }
 
 .mobile-drawer-backdrop {
