@@ -13,6 +13,7 @@ export class ClaudeAdapter {
   private activeSessions = new Map<string, { query: Query; abortController: AbortController }>()
   private activeStreams = new Map<string, Promise<void>>() // threadId → processStream promise
   private threadIdMap = new Map<string, string>() // pendingId → realSessionId
+  private threadCwdMap = new Map<string, string>() // threadId → cwd used for the session
   private notificationListeners = new Set<NotificationListener>()
 
   private async ensureInitialized(): Promise<void> {
@@ -359,8 +360,10 @@ export class ClaudeAdapter {
     // Check if this is a pending thread (first message — create new session)
     const pending = this.pendingThreads.get(threadId)
     const isNewSession = !!pending
-    const cwd = pending?.cwd ?? (typeof params.cwd === 'string' ? params.cwd : process.cwd())
+    const cwd = pending?.cwd ?? this.threadCwdMap.get(threadId) ?? (typeof params.cwd === 'string' ? params.cwd : process.cwd())
     const model = pending?.model ?? this.defaultModel
+    // Store the cwd so subsequent turns in this thread use the same value
+    this.threadCwdMap.set(threadId, cwd)
 
     const queryOptions: Record<string, unknown> = {
       cwd,
@@ -374,7 +377,6 @@ export class ClaudeAdapter {
     if (!isNewSession) {
       queryOptions.resume = threadId
     }
-
 
     const q = query({ prompt, options: queryOptions as any })
 
@@ -398,8 +400,15 @@ export class ClaudeAdapter {
     const streamPromise = this.processStream(threadId, turnId, q).catch((err) => {
       console.warn(`[claude-adapter] stream error for turn ${turnId}:`, err)
     }).finally(() => {
+      // Clean up under both the original threadId AND the resolved real ID,
+      // since processStream may have remapped entries to the real session ID.
+      const realId = this.threadIdMap.get(threadId)
       this.activeStreams.delete(threadId)
       this.activeSessions.delete(threadId)
+      if (realId) {
+        this.activeStreams.delete(realId)
+        this.activeSessions.delete(realId)
+      }
     })
     this.activeStreams.set(threadId, streamPromise)
 
@@ -426,8 +435,6 @@ export class ClaudeAdapter {
 
     try {
       for await (const msg of q) {
-        console.log(`[stream] type=${msg.type} subtype=${(msg as any).subtype ?? ''} threadId=${threadId}`)
-
         // Capture real session ID from init message
         if (msg.type === 'system' && (msg as any).subtype === 'init') {
           const realId = (msg as any).session_id
@@ -443,6 +450,10 @@ export class ClaudeAdapter {
             if (stream) {
               this.activeStreams.set(realId, stream)
               this.activeStreams.delete(threadId)
+            }
+            const cwd = this.threadCwdMap.get(threadId)
+            if (cwd) {
+              this.threadCwdMap.set(realId, cwd)
             }
           }
           continue
