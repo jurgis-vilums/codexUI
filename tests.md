@@ -344,3 +344,26 @@ This file tracks manual regression and feature verification steps.
 
 #### Rollback/Cleanup
 - Restore the previous dark theme styles if the lighter text treatment is not desired.
+
+### Feature: Claude mode keeps the same thread ID across follow-up messages
+
+#### Prerequisites
+- App is running from this repository.
+- Claude backend is authenticated and selectable in the header.
+- Browser DevTools is available to inspect WebSocket traffic if needed.
+
+#### Steps
+1. Switch the app to `Claude` mode.
+2. Start a brand new thread in any project and send a first message.
+3. Wait for the first Claude response to finish streaming.
+4. Send a second follow-up message in the same thread.
+5. Watch the UI while the second response streams, and optionally inspect `/codex-api/ws?backend=claude` events in DevTools.
+6. Refresh the thread list after the second turn completes and confirm the same conversation remains selected and readable.
+
+#### Expected Results
+- The same thread stays selected after the first Claude turn completes.
+- The second Claude message streams live into the existing conversation instead of appearing empty or attaching to a different thread.
+- Follow-up Claude WebSocket events continue to reference the same UI thread ID used when the thread was first created.
+
+#### Rollback/Cleanup
+- None.

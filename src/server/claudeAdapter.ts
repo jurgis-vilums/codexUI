@@ -169,6 +169,14 @@ export class ClaudeAdapter {
     return this.threadIdMap.get(threadId) ?? threadId
   }
 
+  /** Keep a stable UI-facing ID for sessions created from pending threads. */
+  private presentThreadId(threadId: string): string {
+    for (const [pendingId, realId] of this.threadIdMap.entries()) {
+      if (realId === threadId) return pendingId
+    }
+    return threadId
+  }
+
   private emitNotification(method: string, params: unknown): void {
     for (const listener of this.notificationListeners) {
       listener({ method, params })
@@ -201,7 +209,8 @@ export class ClaudeAdapter {
   }
 
   private async handleThreadResume(params: RpcParams) {
-    const threadId = params.threadId as string
+    const requestedThreadId = params.threadId as string
+    const threadId = this.resolveThreadId(requestedThreadId)
     const abortController = new AbortController()
 
     const q = query({
@@ -224,8 +233,12 @@ export class ClaudeAdapter {
 
     if (!sessionId) sessionId = threadId
     this.activeSessions.set(sessionId, { query: q, abortController })
+    const presentedSessionId = this.presentThreadId(sessionId)
+    if (presentedSessionId !== sessionId) {
+      this.activeSessions.set(presentedSessionId, { query: q, abortController })
+    }
 
-    return { thread: { id: sessionId } }
+    return { thread: { id: presentedSessionId } }
   }
 
   private async handleThreadNameSet(params: RpcParams) {
@@ -315,7 +328,8 @@ export class ClaudeAdapter {
   }
 
   private async handleThreadRead(params: RpcParams) {
-    const threadId = this.resolveThreadId(params.threadId as string)
+    const requestedThreadId = params.threadId as string
+    const threadId = this.resolveThreadId(requestedThreadId)
     const includeTurns = params.includeTurns !== false
 
     let turns: unknown[] = []
@@ -326,7 +340,7 @@ export class ClaudeAdapter {
 
     return {
       thread: {
-        id: threadId,
+        id: this.presentThreadId(threadId),
         preview: '',
         modelProvider: 'anthropic',
         createdAt: 0,
@@ -342,7 +356,9 @@ export class ClaudeAdapter {
   }
 
   private async handleTurnStart(params: RpcParams) {
-    const threadId = this.resolveThreadId(params.threadId as string)
+    const requestedThreadId = params.threadId as string
+    const threadId = this.resolveThreadId(requestedThreadId)
+    const notificationThreadId = this.presentThreadId(threadId)
     const input = params.input as Array<{ type: string; text?: string }>
     const prompt = input
       .filter((i) => i.type === 'text' && i.text)
@@ -350,7 +366,7 @@ export class ClaudeAdapter {
       .join('\n')
 
     // Wait for any previous stream to finish before starting a new one
-    const prevStream = this.activeStreams.get(threadId)
+    const prevStream = this.activeStreams.get(threadId) ?? this.activeStreams.get(notificationThreadId)
     if (prevStream) {
       await prevStream.catch(() => {})
     }
@@ -386,19 +402,34 @@ export class ClaudeAdapter {
 
     // Store the active session
     this.activeSessions.set(threadId, { query: q, abortController })
+    if (notificationThreadId !== threadId) {
+      this.activeSessions.set(notificationThreadId, { query: q, abortController })
+    }
 
     const turnId = `turn-${Date.now()}`
 
     // Emit turn/started
     this.emitNotification('turn/started', {
-      threadId,
+      threadId: notificationThreadId,
       turn: { id: turnId, status: 'inProgress', items: [], error: null },
     })
 
     // Await stream fully — ensures session is clean before next turn can start.
     // Notifications still stream to the frontend via WebSocket in real-time.
-    await this.processStream(threadId, turnId, q).catch((err) => {
+    const streamPromise = this.processStream(threadId, notificationThreadId, turnId, q)
+    this.activeStreams.set(threadId, streamPromise)
+    if (notificationThreadId !== threadId) {
+      this.activeStreams.set(notificationThreadId, streamPromise)
+    }
+    await streamPromise.catch((err) => {
       console.warn(`[claude-adapter] stream error for turn ${turnId}:`, err)
+    }).finally(() => {
+      if (this.activeStreams.get(threadId) === streamPromise) {
+        this.activeStreams.delete(threadId)
+      }
+      if (this.activeStreams.get(notificationThreadId) === streamPromise) {
+        this.activeStreams.delete(notificationThreadId)
+      }
     })
 
     return {
@@ -418,7 +449,7 @@ export class ClaudeAdapter {
     return {}
   }
 
-  private async processStream(threadId: string, turnId: string, q: AsyncIterable<SDKMessage>) {
+  private async processStream(threadId: string, notificationThreadId: string, turnId: string, q: AsyncIterable<SDKMessage>) {
     // Track active text block for streaming deltas
     let activeTextItemId: string | null = null
 
@@ -456,12 +487,12 @@ export class ClaudeAdapter {
             activeTextItemId = uuid
             this.emitNotification('item/started', {
               item: { type: 'agentMessage', id: uuid, text: '' },
-              threadId,
+              threadId: notificationThreadId,
               turnId,
             })
           } else if (event?.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
             this.emitNotification('item/agentMessage/delta', {
-              threadId,
+              threadId: notificationThreadId,
               turnId,
               itemId: activeTextItemId ?? uuid,
               delta: event.delta.text,
@@ -469,7 +500,7 @@ export class ClaudeAdapter {
           } else if (event?.type === 'content_block_stop' && activeTextItemId) {
             this.emitNotification('item/completed', {
               item: { type: 'agentMessage', id: activeTextItemId, text: '' },
-              threadId,
+              threadId: notificationThreadId,
               turnId,
             })
             activeTextItemId = null
@@ -485,10 +516,10 @@ export class ClaudeAdapter {
                 id: (msg as any).uuid ?? `item-${Date.now()}`,
                 text: block.text,
               }
-              this.emitNotification('item/started', { item, threadId, turnId })
-              this.emitNotification('item/completed', { item, threadId, turnId })
+              this.emitNotification('item/started', { item, threadId: notificationThreadId, turnId })
+              this.emitNotification('item/completed', { item, threadId: notificationThreadId, turnId })
             } else if (block.type === 'tool_use') {
-              this.emitToolUseItem(block, threadId, turnId)
+              this.emitToolUseItem(block, notificationThreadId, turnId)
             }
           }
         }
@@ -500,7 +531,7 @@ export class ClaudeAdapter {
       }
     } finally {
       this.emitNotification('turn/completed', {
-        threadId,
+        threadId: notificationThreadId,
         turn: { id: turnId, status: 'completed', items: [], error: null },
       })
     }
@@ -686,7 +717,7 @@ export class ClaudeAdapter {
   private sessionToThread(s: SDKSessionInfo) {
     const updatedAtSec = Math.floor(s.lastModified / 1000)
     return {
-      id: s.sessionId,
+      id: this.presentThreadId(s.sessionId),
       preview: s.firstPrompt ?? s.summary ?? '',
       modelProvider: 'anthropic',
       createdAt: updatedAtSec,

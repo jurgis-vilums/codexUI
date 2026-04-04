@@ -139,6 +139,57 @@ describe('ClaudeAdapter', () => {
       expect(result.data).toEqual([])
       expect(result.nextCursor).toBeNull()
     })
+
+    it('keeps the pending Claude thread id visible after the real session id is known', async () => {
+      const startResult = await adapter.rpc('thread/start', { cwd: '/project' }) as any
+      const pendingThreadId = startResult.thread.id
+      const realSessionId = 'sess-real-001'
+
+      const firstTurnQuery = (async function* () {
+        yield {
+          type: 'system',
+          subtype: 'init',
+          session_id: realSessionId,
+          uuid: 'init-001',
+        }
+        yield {
+          type: 'result',
+          subtype: 'success',
+          session_id: realSessionId,
+          uuid: 'result-001',
+          result: '',
+          duration_ms: 0,
+          duration_api_ms: 0,
+          is_error: false,
+          num_turns: 1,
+          stop_reason: 'end_turn',
+          total_cost_usd: 0,
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          modelUsage: {},
+          permission_denials: [],
+        }
+      })()
+
+      vi.mocked(mockQuery).mockReturnValueOnce(firstTurnQuery as any)
+
+      await adapter.rpc('turn/start', {
+        threadId: pendingThreadId,
+        input: [{ type: 'text', text: 'Hello' }],
+      })
+
+      vi.mocked(mockListSessions).mockResolvedValueOnce([
+        {
+          sessionId: realSessionId,
+          summary: 'Claude session',
+          lastModified: 1712188800000,
+          cwd: '/project',
+          firstPrompt: 'Hello',
+        },
+      ] as any)
+
+      const result = await adapter.rpc('thread/list', { limit: 10 }) as any
+      expect(result.data[0].id).toBe(pendingThreadId)
+    })
   })
 
   describe('thread/start', () => {
@@ -431,6 +482,131 @@ describe('ClaudeAdapter', () => {
       // Should have emitted turn/completed
       const turnCompleted = notifications.find(n => n.method === 'turn/completed')
       expect(turnCompleted).toBeDefined()
+    })
+
+    it('keeps emitting notifications on the pending thread id after resume resolves to the real Claude session id', async () => {
+      const startResult = await adapter.rpc('thread/start', { cwd: '/project' }) as any
+      const pendingThreadId = startResult.thread.id
+      const realSessionId = 'sess-real-002'
+
+      const firstTurnQuery = (async function* () {
+        yield {
+          type: 'system',
+          subtype: 'init',
+          session_id: realSessionId,
+          uuid: 'init-002',
+        }
+        yield {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+          parent_tool_use_id: null,
+          uuid: 'block-002',
+          session_id: realSessionId,
+        }
+        yield {
+          type: 'stream_event',
+          event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'First reply' } },
+          parent_tool_use_id: null,
+          uuid: 'block-002',
+          session_id: realSessionId,
+        }
+        yield {
+          type: 'stream_event',
+          event: { type: 'content_block_stop', index: 0 },
+          parent_tool_use_id: null,
+          uuid: 'block-002',
+          session_id: realSessionId,
+        }
+        yield {
+          type: 'result',
+          subtype: 'success',
+          session_id: realSessionId,
+          uuid: 'result-002',
+          result: 'First reply',
+          duration_ms: 0,
+          duration_api_ms: 0,
+          is_error: false,
+          num_turns: 1,
+          stop_reason: 'end_turn',
+          total_cost_usd: 0,
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          modelUsage: {},
+          permission_denials: [],
+        }
+      })()
+
+      const secondTurnQuery = (async function* () {
+        yield {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+          parent_tool_use_id: null,
+          uuid: 'block-003',
+          session_id: realSessionId,
+        }
+        yield {
+          type: 'stream_event',
+          event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Second reply' } },
+          parent_tool_use_id: null,
+          uuid: 'block-003',
+          session_id: realSessionId,
+        }
+        yield {
+          type: 'stream_event',
+          event: { type: 'content_block_stop', index: 0 },
+          parent_tool_use_id: null,
+          uuid: 'block-003',
+          session_id: realSessionId,
+        }
+        yield {
+          type: 'result',
+          subtype: 'success',
+          session_id: realSessionId,
+          uuid: 'result-003',
+          result: 'Second reply',
+          duration_ms: 0,
+          duration_api_ms: 0,
+          is_error: false,
+          num_turns: 2,
+          stop_reason: 'end_turn',
+          total_cost_usd: 0,
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          modelUsage: {},
+          permission_denials: [],
+        }
+      })()
+
+      vi.mocked(mockQuery)
+        .mockReturnValueOnce(firstTurnQuery as any)
+        .mockReturnValueOnce(secondTurnQuery as any)
+
+      const notifications: Array<{ method: string; params: any }> = []
+      adapter.onNotification((n) => notifications.push(n as any))
+
+      await adapter.rpc('turn/start', {
+        threadId: pendingThreadId,
+        input: [{ type: 'text', text: 'Hello' }],
+      })
+
+      notifications.length = 0
+
+      await adapter.rpc('turn/start', {
+        threadId: pendingThreadId,
+        input: [{ type: 'text', text: 'Follow up' }],
+      })
+
+      expect(mockQuery).toHaveBeenLastCalledWith({
+        prompt: 'Follow up',
+        options: expect.objectContaining({
+          resume: realSessionId,
+        }),
+      })
+
+      const notificationThreadIds = notifications
+        .map((notification) => notification.params?.threadId)
+        .filter((threadId) => typeof threadId === 'string')
+
+      expect(notificationThreadIds.length).toBeGreaterThan(0)
+      expect(new Set(notificationThreadIds)).toEqual(new Set([pendingThreadId]))
     })
   })
 
