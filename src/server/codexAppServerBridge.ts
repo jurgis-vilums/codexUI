@@ -1597,6 +1597,29 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           return
         }
 
+        // Handle project file RPCs directly (works in both Codex and Claude modes)
+        if (body.method.startsWith('claude/')) {
+          const { scanProjectFiles, readProjectFile, saveProjectFile } = await import('./projectFiles.js')
+          const params = (body.params ?? {}) as Record<string, unknown>
+          if (body.method === 'claude/project-files') {
+            const cwd = typeof params.cwd === 'string' ? params.cwd : process.cwd()
+            setJson(res, 200, { result: { files: await scanProjectFiles(cwd) } })
+            return
+          }
+          if (body.method === 'claude/read-file') {
+            const path = typeof params.path === 'string' ? params.path : ''
+            const fileResult = await readProjectFile(path)
+            setJson(res, 200, { result: fileResult ?? { error: 'File not found or not allowed' } })
+            return
+          }
+          if (body.method === 'claude/save-file') {
+            const path = typeof params.path === 'string' ? params.path : ''
+            const content = typeof params.content === 'string' ? params.content : ''
+            setJson(res, 200, { result: await saveProjectFile(path, content) })
+            return
+          }
+        }
+
         const backend = getBackendForRequest(req)
         const rpcResult = await backend.rpc(body.method, body.params ?? null)
         const result = trimThreadTurnsInRpcResult(body.method, rpcResult)
