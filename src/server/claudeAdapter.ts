@@ -267,7 +267,8 @@ export class ClaudeAdapter {
 
     if (keepCount <= 0) {
       // Rolling back everything — just create a new empty thread
-      return this.handleThreadStart({ cwd: process.cwd() })
+      const cwd = this.threadCwdMap.get(threadId) ?? process.cwd()
+      return this.handleThreadStart({ cwd })
     }
 
     // The fork point is the last message before the turn we're removing
@@ -276,7 +277,8 @@ export class ClaudeAdapter {
     const forkAtUuid = messages[cutoffMsgIndex - 1]?.uuid
 
     if (!forkAtUuid) {
-      return this.handleThreadStart({ cwd: process.cwd() })
+      const cwd = this.threadCwdMap.get(threadId) ?? process.cwd()
+      return this.handleThreadStart({ cwd })
     }
 
     // Fork the session at this point
@@ -410,6 +412,7 @@ export class ClaudeAdapter {
     }
 
     session.abortController.abort()
+    this.activeStreams.delete(threadId)
     return {}
   }
 

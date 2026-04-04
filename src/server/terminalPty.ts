@@ -60,6 +60,9 @@ export function writeToSession(data: string): void {
 
 export function resizeSession(cols: number, rows: number): void {
   if (!session) return
+  cols = Math.max(1, Math.min(500, Math.floor(cols)))
+  rows = Math.max(1, Math.min(200, Math.floor(rows)))
+  if (!Number.isFinite(cols) || !Number.isFinite(rows)) return
   session.ptyProcess.resize(cols, rows)
 }
 
