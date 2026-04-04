@@ -843,7 +843,7 @@ export function useDesktopState() {
       await applyFallbackModelSelection()
       // Remove the failed user turn before replaying on fallback model to avoid duplicated user messages.
       try {
-        const rolledBackMessages = await rollbackThread(threadId, 1)
+        const { messages: rolledBackMessages } = await rollbackThread(threadId, 1)
         setPersistedMessagesForThread(threadId, rolledBackMessages)
         setLiveAgentMessagesForThread(threadId, [])
         clearLiveReasoningForThread(threadId)

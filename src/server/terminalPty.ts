@@ -7,6 +7,7 @@ type TerminalSession = {
   ptyProcess: pty.IPty
   graceTimer: ReturnType<typeof setTimeout> | null
   onData: ((data: string) => void) | null
+  dataDisposable: { dispose(): void } | null
 }
 
 let session: TerminalSession | null = null
@@ -34,7 +35,7 @@ export function getOrCreateSession(cwd?: string): TerminalSession {
     env: process.env as Record<string, string>,
   })
 
-  session = { ptyProcess, graceTimer: null, onData: null }
+  session = { ptyProcess, graceTimer: null, onData: null, dataDisposable: null }
 
   ptyProcess.onExit(() => {
     session = null
@@ -45,8 +46,11 @@ export function getOrCreateSession(cwd?: string): TerminalSession {
 
 export function attachDataListener(listener: (data: string) => void): void {
   if (!session) return
+  if (session.dataDisposable) {
+    session.dataDisposable.dispose()
+  }
   session.onData = listener
-  session.ptyProcess.onData(listener)
+  session.dataDisposable = session.ptyProcess.onData(listener)
 }
 
 export function writeToSession(data: string): void {
