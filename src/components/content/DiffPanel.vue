@@ -89,6 +89,7 @@ const stagedDiff = ref('')
 
 let ws: WebSocket | null = null
 let pendingCallbacks = new Map<string, (data: unknown) => void>()
+let refreshGeneration = 0
 
 const unstagedCount = computed(() => allFiles.value.filter(f => !f.staged).length)
 const stagedCount = computed(() => allFiles.value.filter(f => f.staged).length)
@@ -160,10 +161,13 @@ function sendGit(action: Record<string, unknown>): Promise<unknown> {
 }
 
 async function refresh(): Promise<void> {
+  const gen = ++refreshGeneration
   connectWebSocket()
   // Small delay to ensure connection is ready
   if (ws && ws.readyState === WebSocket.CONNECTING) {
-    await new Promise<void>(r => { ws!.onopen = () => r() })
+    await new Promise<void>(r => {
+      ws!.addEventListener('open', () => r(), { once: true })
+    })
   }
 
   const [statusResult, unstagedResult, stagedResult] = await Promise.all([
@@ -175,6 +179,9 @@ async function refresh(): Promise<void> {
     { data?: string },
     { data?: string },
   ]
+
+  // Discard if a newer refresh was started
+  if (gen !== refreshGeneration) return
 
   if (statusResult.data) allFiles.value = statusResult.data
   if (typeof unstagedResult.data === 'string') unstagedDiff.value = unstagedResult.data

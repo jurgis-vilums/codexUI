@@ -2668,6 +2668,13 @@ export function useDesktopState() {
         // Backend forked to a new thread (Claude mode) — navigate to it
         setPersistedMessagesForThread(newThreadId, nextMessages)
         selectedThreadId.value = newThreadId
+        // Clean up old thread's live state
+        delete liveAgentMessagesByThreadId.value[threadId]
+        delete liveReasoningTextByThreadId.value[threadId]
+        delete liveCommandsByThreadId.value[threadId]
+        setTurnSummaryForThread(threadId, null)
+        setTurnActivityForThread(threadId, null)
+        setTurnErrorForThread(threadId, null)
         pendingThreadsRefresh = true
         await syncFromNotifications()
       } else {
