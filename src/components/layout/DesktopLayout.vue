@@ -24,7 +24,20 @@
     </template>
 
     <section class="desktop-main">
-      <slot name="content" />
+      <div class="desktop-main-content" :style="isTerminalOpen ? { flex: '1 1 0', minHeight: '0' } : { flex: '1 1 0' }">
+        <slot name="content" />
+      </div>
+      <template v-if="isTerminalOpen">
+        <button
+          class="terminal-resize-handle"
+          type="button"
+          aria-label="Resize terminal"
+          @mousedown="onTerminalResizeHandleMouseDown"
+        />
+        <div class="desktop-terminal" :style="{ height: terminalHeight + 'px' }">
+          <slot name="terminal" />
+        </div>
+      </template>
     </section>
   </div>
 </template>
@@ -36,9 +49,11 @@ import { useMobile } from '../../composables/useMobile'
 const props = withDefaults(
   defineProps<{
     isSidebarCollapsed?: boolean
+    isTerminalOpen?: boolean
   }>(),
   {
     isSidebarCollapsed: false,
+    isTerminalOpen: false,
   },
 )
 
@@ -82,6 +97,48 @@ const layoutStyle = computed(() => {
 function saveSidebarWidth(value: number): void {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(value))
+}
+
+const TERMINAL_HEIGHT_KEY = 'codex-web-local.terminal-height.v1'
+const MIN_TERMINAL_HEIGHT = 100
+const MAX_TERMINAL_FRACTION = 0.7
+const DEFAULT_TERMINAL_HEIGHT = 250
+
+function loadTerminalHeight(): number {
+  if (typeof window === 'undefined') return DEFAULT_TERMINAL_HEIGHT
+  const raw = window.localStorage.getItem(TERMINAL_HEIGHT_KEY)
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed)) return DEFAULT_TERMINAL_HEIGHT
+  return Math.max(MIN_TERMINAL_HEIGHT, parsed)
+}
+
+function saveTerminalHeight(value: number): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(TERMINAL_HEIGHT_KEY, String(value))
+}
+
+const terminalHeight = ref(loadTerminalHeight())
+
+function onTerminalResizeHandleMouseDown(event: MouseEvent): void {
+  event.preventDefault()
+  const startY = event.clientY
+  const startHeight = terminalHeight.value
+  const mainEl = document.querySelector('.desktop-main') as HTMLElement | null
+  const maxHeight = mainEl ? mainEl.clientHeight * MAX_TERMINAL_FRACTION : 500
+
+  const onMouseMove = (moveEvent: MouseEvent) => {
+    const delta = startY - moveEvent.clientY
+    terminalHeight.value = Math.min(maxHeight, Math.max(MIN_TERMINAL_HEIGHT, startHeight + delta))
+  }
+
+  const onMouseUp = () => {
+    saveTerminalHeight(terminalHeight.value)
+    window.removeEventListener('mousemove', onMouseMove)
+    window.removeEventListener('mouseup', onMouseUp)
+  }
+
+  window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('mouseup', onMouseUp)
 }
 
 function onResizeHandleMouseDown(event: MouseEvent): void {
@@ -129,7 +186,24 @@ function onResizeHandleMouseDown(event: MouseEvent): void {
 }
 
 .desktop-main {
-  @apply bg-white min-h-0 overflow-y-hidden overflow-x-visible;
+  @apply flex flex-col bg-white min-h-0 overflow-hidden;
+}
+
+.desktop-main-content {
+  @apply overflow-hidden;
+}
+
+.terminal-resize-handle {
+  @apply relative h-px cursor-row-resize bg-slate-300 hover:bg-slate-400 transition flex-shrink-0;
+}
+
+.terminal-resize-handle::before {
+  content: '';
+  @apply absolute -top-2 -bottom-2 left-0 right-0;
+}
+
+.desktop-terminal {
+  @apply flex-shrink-0 overflow-hidden;
 }
 
 .mobile-drawer-backdrop {
@@ -181,5 +255,9 @@ function onResizeHandleMouseDown(event: MouseEvent): void {
 
 :global(:root.dark) .desktop-main {
   @apply bg-zinc-950;
+}
+
+:global(:root.dark) .terminal-resize-handle {
+  @apply bg-zinc-700 hover:bg-zinc-600;
 }
 </style>
