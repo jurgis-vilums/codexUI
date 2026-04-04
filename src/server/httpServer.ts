@@ -8,6 +8,7 @@ import { createCodexBridgeMiddleware } from './codexAppServerBridge.js'
 import { createAuthSession } from './authMiddleware.js'
 import { createDirectoryListingHtml, createTextEditorHtml, decodeBrowsePath, isTextEditableFile, normalizeLocalPath } from './localBrowseUi.js'
 import { WebSocketServer, type WebSocket } from 'ws'
+import { getOrCreateSession, attachDataListener, writeToSession, resizeSession, startGracePeriod } from './terminalPty.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distDir = join(__dirname, '..', 'dist')
@@ -225,12 +226,10 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
     dispose: () => bridge.dispose(),
     attachWebSocket: (server: HttpServer) => {
       const wss = new WebSocketServer({ noServer: true })
+      const terminalWss = new WebSocketServer({ noServer: true })
 
       server.on('upgrade', (req: IncomingMessage, socket, head) => {
         const url = new URL(req.url ?? '', 'http://localhost')
-        if (url.pathname !== '/codex-api/ws') {
-          return
-        }
 
         if (authSession && !authSession.isRequestAuthorized(req)) {
           socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
@@ -238,8 +237,48 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
           return
         }
 
+        if (url.pathname === '/ws/terminal') {
+          terminalWss.handleUpgrade(req, socket, head, (ws) => {
+            terminalWss.emit('connection', ws, req)
+          })
+          return
+        }
+
+        if (url.pathname !== '/codex-api/ws') {
+          return
+        }
+
         wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
           wss.emit('connection', ws, req)
+        })
+      })
+
+      terminalWss.on('connection', (ws: WebSocket) => {
+        const sess = getOrCreateSession()
+        attachDataListener((data: string) => {
+          if (ws.readyState === 1) ws.send(data)
+        })
+
+        ws.on('message', (msg: Buffer | string) => {
+          const str = typeof msg === 'string' ? msg : msg.toString('utf-8')
+          try {
+            const parsed = JSON.parse(str)
+            if (parsed.type === 'resize' && typeof parsed.cols === 'number' && typeof parsed.rows === 'number') {
+              resizeSession(parsed.cols, parsed.rows)
+              return
+            }
+          } catch {
+            // Not JSON — treat as raw terminal input
+          }
+          writeToSession(str)
+        })
+
+        ws.on('close', () => {
+          startGracePeriod()
+        })
+
+        ws.on('error', () => {
+          startGracePeriod()
         })
       })
 
