@@ -465,10 +465,11 @@ describe('ClaudeAdapter', () => {
       const startResult = await adapter.rpc('thread/start', { cwd: '/project' }) as any
       const threadId = startResult.thread.id
 
-      // Now do a turn/start to create an active session
+      // Create a slow stream that we can interrupt
+      let streamResolve: () => void
+      const streamBlock = new Promise<void>(r => { streamResolve = r })
       const turnQuery = (async function* () {
-        // Simulate a slow stream that won't complete before interrupt
-        await new Promise(r => setTimeout(r, 10000))
+        await streamBlock // blocks until interrupted
         yield { type: 'result', subtype: 'success', session_id: threadId,
           uuid: '00000000-0000-0000-0000-000000000021', result: '',
           duration_ms: 0, duration_api_ms: 0, is_error: false, num_turns: 1,
@@ -476,16 +477,20 @@ describe('ClaudeAdapter', () => {
           modelUsage: {}, permission_denials: [] }
       })()
       vi.mocked(mockQuery).mockReturnValueOnce(turnQuery as any)
-      await adapter.rpc('turn/start', { threadId, input: [{ type: 'text', text: 'Hello' }] })
 
-      // Now call turn/interrupt
-      const result = await adapter.rpc('turn/interrupt', {
-        threadId,
-        turnId: 'some-turn-id',
-      })
+      // Start turn (will block on stream) and interrupt concurrently
+      const turnPromise = adapter.rpc('turn/start', { threadId, input: [{ type: 'text', text: 'Hello' }] })
 
-      // Should not throw
+      // Give it a tick to start processing
+      await new Promise(r => setTimeout(r, 10))
+
+      // Interrupt should not throw
+      const result = await adapter.rpc('turn/interrupt', { threadId, turnId: 'some-turn-id' })
       expect(result).toBeDefined()
+
+      // Unblock the stream so turn/start resolves
+      streamResolve!()
+      await turnPromise
     })
 
     it('throws when interrupting unknown thread', async () => {

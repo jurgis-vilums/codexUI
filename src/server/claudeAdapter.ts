@@ -395,22 +395,11 @@ export class ClaudeAdapter {
       turn: { id: turnId, status: 'inProgress', items: [], error: null },
     })
 
-    // Process stream in background — return turn ID immediately
-    // Notifications stream to the frontend via WebSocket
-    const streamPromise = this.processStream(threadId, turnId, q).catch((err) => {
+    // Await stream fully — ensures session is clean before next turn can start.
+    // Notifications still stream to the frontend via WebSocket in real-time.
+    await this.processStream(threadId, turnId, q).catch((err) => {
       console.warn(`[claude-adapter] stream error for turn ${turnId}:`, err)
-    }).finally(() => {
-      // Clean up under both the original threadId AND the resolved real ID,
-      // since processStream may have remapped entries to the real session ID.
-      const realId = this.threadIdMap.get(threadId)
-      this.activeStreams.delete(threadId)
-      this.activeSessions.delete(threadId)
-      if (realId) {
-        this.activeStreams.delete(realId)
-        this.activeSessions.delete(realId)
-      }
     })
-    this.activeStreams.set(threadId, streamPromise)
 
     return {
       turn: { id: turnId },
