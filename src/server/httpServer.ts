@@ -8,7 +8,7 @@ import { createCodexBridgeMiddleware } from './codexAppServerBridge.js'
 import { createAuthSession } from './authMiddleware.js'
 import { createDirectoryListingHtml, createTextEditorHtml, decodeBrowsePath, isTextEditableFile, normalizeLocalPath } from './localBrowseUi.js'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { getOrCreateSession, attachDataListener, writeToSession, resizeSession, startGracePeriod } from './terminalPty.js'
+import { getOrCreateSession, attachDataListener, writeToSession, resizeSession, startGracePeriod, destroySession } from './terminalPty.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distDir = join(__dirname, '..', 'dist')
@@ -223,7 +223,10 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
 
   return {
     app,
-    dispose: () => bridge.dispose(),
+    dispose: () => {
+      destroySession()
+      bridge.dispose()
+    },
     attachWebSocket: (server: HttpServer) => {
       const wss = new WebSocketServer({ noServer: true })
       const terminalWss = new WebSocketServer({ noServer: true })

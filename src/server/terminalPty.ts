@@ -76,3 +76,6 @@ export function destroySession(): void {
   session.ptyProcess.kill()
   session = null
 }
+
+process.once('SIGTERM', destroySession)
+process.once('SIGINT', destroySession)

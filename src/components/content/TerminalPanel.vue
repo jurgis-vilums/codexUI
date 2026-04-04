@@ -18,6 +18,7 @@ let terminal: Terminal | null = null
 let fitAddon: FitAddon | null = null
 let ws: WebSocket | null = null
 let resizeObserver: ResizeObserver | null = null
+let mutationObserver: MutationObserver | null = null
 
 const LIGHT_THEME = {
   background: '#ffffff',
@@ -121,6 +122,12 @@ function initTerminal(): void {
   })
   resizeObserver.observe(terminalContainerRef.value)
 
+  mutationObserver = new MutationObserver(() => {
+    if (!terminal) return
+    terminal.options.theme = isDark() ? DARK_THEME : LIGHT_THEME
+  })
+  mutationObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+
   connectWebSocket()
 }
 
@@ -137,10 +144,6 @@ watch(() => props.visible, async (isVisible) => {
   }
 })
 
-watch(() => isDark(), (dark) => {
-  terminal?.options && (terminal.options.theme = dark ? DARK_THEME : LIGHT_THEME)
-})
-
 onMounted(() => {
   if (props.visible) {
     initTerminal()
@@ -149,6 +152,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
+  mutationObserver?.disconnect()
   ws?.close()
   terminal?.dispose()
   terminal = null
