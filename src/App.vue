@@ -59,13 +59,15 @@
             :selected-thread-id="selectedThreadId" :is-loading="isLoadingThreads"
             :search-query="sidebarSearchQuery"
             :search-matched-thread-ids="serverMatchedThreadIds"
+            :project-files="projectFilesMap"
             @select="onSelectThread"
             @archive="onArchiveThread" @start-new-thread="onStartNewThread" @rename-project="onRenameProject"
             @browse-thread-files="onBrowseThreadFiles"
             @rename-thread="onRenameThread"
             @fork-thread="onForkThread"
             @remove-project="onRemoveProject" @reorder-project="onReorderProject"
-            @export-thread="onExportThread" />
+            @export-thread="onExportThread"
+            @open-file="onOpenFile" />
         </div>
 
         <div v-if="!isSidebarCollapsed" class="sidebar-settings-area">
@@ -155,6 +157,13 @@
         <section class="content-body">
           <template v-if="isSkillsRoute">
             <SkillsHub @skills-changed="onSkillsChanged" />
+          </template>
+          <template v-else-if="openFilePath">
+            <div class="content-grid">
+              <div class="content-thread">
+                <FileEditor :path="openFilePath" :name="openFileName" />
+              </div>
+            </div>
           </template>
           <template v-else-if="isHomeRoute">
             <div class="content-grid">
@@ -298,6 +307,7 @@ import { useRoute, useRouter } from 'vue-router'
 import DesktopLayout from './components/layout/DesktopLayout.vue'
 import SidebarThreadTree from './components/sidebar/SidebarThreadTree.vue'
 import ContentHeader from './components/content/ContentHeader.vue'
+import FileEditor from './components/content/FileEditor.vue'
 import ThreadConversation from './components/content/ThreadConversation.vue'
 import ThreadComposer from './components/content/ThreadComposer.vue'
 import QueuedMessages from './components/content/QueuedMessages.vue'
@@ -503,6 +513,9 @@ const githubTipsScope = ref<GithubTipsScope>('trending-daily')
 const savedBackend = typeof localStorage !== 'undefined' ? localStorage.getItem('codexui-backend') : null
 const activeBackend = ref<'codex' | 'claude'>(savedBackend === 'claude' ? 'claude' : 'codex')
 const authBanner = ref<{ message: string; command?: string } | null>(null)
+const projectFilesMap = ref<Record<string, Array<{ name: string; path: string; category: string; description?: string }>>>({})
+const openFilePath = ref<string | null>(null)
+const openFileName = ref('')
 const editingQueuedMessageState = ref<{ threadId: string; queueIndex: number } | null>(null)
 const isRouteSyncInProgress = ref(false)
 const hasInitialized = ref(false)
@@ -704,6 +717,30 @@ watch(sidebarSearchQuery, (value) => {
   }, 220)
 })
 
+function onOpenFile(payload: { path: string; name: string }): void {
+  openFilePath.value = payload.path
+  openFileName.value = payload.name
+  // Deselect thread so the editor shows instead of conversation
+  selectedThreadId.value = ''
+}
+
+async function loadProjectFiles(): Promise<void> {
+  const map: typeof projectFilesMap.value = {}
+  for (const group of projectGroups.value) {
+    const cwd = group.threads[0]?.cwd
+    if (!cwd) continue
+    try {
+      const result = await rpcCall<{ files: Array<{ name: string; path: string; category: string; description?: string }> }>('claude/project-files', { cwd })
+      if (result.files?.length > 0) {
+        map[group.projectName] = result.files
+      }
+    } catch {
+      // ignore
+    }
+  }
+  projectFilesMap.value = map
+}
+
 function onSkillsChanged(): void {
   void refreshSkills()
 }
@@ -739,6 +776,8 @@ async function onToggleBackend(): Promise<void> {
       // auth/status not available — ignore
     }
   }
+
+  void loadProjectFiles()
 }
 
 async function refreshTelegramStatus(): Promise<void> {
@@ -779,6 +818,8 @@ function onSidebarSearchKeydown(event: KeyboardEvent): void {
 
 function onSelectThread(threadId: string): void {
   if (!threadId) return
+  openFilePath.value = null
+  openFileName.value = ''
   if (route.name === 'thread' && routeThreadId.value === threadId) return
   void router.push({ name: 'thread', params: { threadId } })
   if (isMobile.value) setSidebarCollapsed(true)
@@ -1415,6 +1456,7 @@ async function initialize(): Promise<void> {
   hasInitialized.value = true
   await syncThreadSelectionWithRoute()
   startPolling()
+  void loadProjectFiles()
 }
 
 async function syncThreadSelectionWithRoute(): Promise<void> {
