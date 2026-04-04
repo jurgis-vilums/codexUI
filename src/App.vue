@@ -1,5 +1,5 @@
 <template>
-  <DesktopLayout :is-sidebar-collapsed="isSidebarCollapsed" @close-sidebar="setSidebarCollapsed(true)">
+  <DesktopLayout :is-sidebar-collapsed="isSidebarCollapsed" :is-terminal-open="isTerminalOpen" :is-diff-panel-open="isDiffPanelOpen" @close-sidebar="setSidebarCollapsed(true)">
     <template #sidebar>
       <section class="sidebar-root">
         <div class="sidebar-scrollable">
@@ -146,6 +146,26 @@
               @toggle-sidebar="setSidebarCollapsed(!isSidebarCollapsed)"
               @start-new-thread="onStartNewThreadFromToolbar"
             />
+          </template>
+          <template #actions>
+            <button
+              type="button"
+              class="terminal-toggle-btn"
+              :class="{ 'is-active': isTerminalOpen }"
+              title="Toggle terminal (Ctrl+`)"
+              @click="toggleTerminal"
+            >
+              <IconTablerTerminal />
+            </button>
+            <button
+              type="button"
+              class="terminal-toggle-btn"
+              :class="{ 'is-active': isDiffPanelOpen }"
+              title="Toggle diff panel (Alt+Ctrl+B)"
+              @click="toggleDiffPanel"
+            >
+              <IconTablerGitBranch />
+            </button>
           </template>
         </ContentHeader>
 
@@ -298,6 +318,12 @@
         </section>
       </section>
     </template>
+    <template #terminal>
+      <TerminalPanel :visible="isTerminalOpen" />
+    </template>
+        <template #diff>
+          <DiffPanel :visible="isDiffPanelOpen" />
+        </template>
   </DesktopLayout>
 </template>
 
@@ -315,6 +341,10 @@ import RateLimitStatus from './components/content/RateLimitStatus.vue'
 import ComposerDropdown from './components/content/ComposerDropdown.vue'
 import ComposerRuntimeDropdown from './components/content/ComposerRuntimeDropdown.vue'
 import SkillsHub from './components/content/SkillsHub.vue'
+import TerminalPanel from './components/content/TerminalPanel.vue'
+import IconTablerTerminal from './components/icons/IconTablerTerminal.vue'
+import DiffPanel from './components/content/DiffPanel.vue'
+import IconTablerGitBranch from './components/icons/IconTablerGitBranch.vue'
 import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vue'
 import IconTablerSearch from './components/icons/IconTablerSearch.vue'
 import IconTablerSettings from './components/icons/IconTablerSettings.vue'
@@ -934,10 +964,30 @@ function setSidebarCollapsed(nextValue: boolean): void {
 function onWindowKeyDown(event: KeyboardEvent): void {
   if (event.defaultPrevented) return
   if (!event.ctrlKey && !event.metaKey) return
-  if (event.shiftKey || event.altKey) return
-  if (event.key.toLowerCase() !== 'b') return
-  event.preventDefault()
-  setSidebarCollapsed(!isSidebarCollapsed.value)
+
+  const key = event.key.toLowerCase()
+
+  if (!event.shiftKey && !event.altKey) {
+    if (key === 'b') {
+      event.preventDefault()
+      setSidebarCollapsed(!isSidebarCollapsed.value)
+      return
+    }
+
+    if (key === '`') {
+      event.preventDefault()
+      toggleTerminal()
+      return
+    }
+  }
+
+  if (event.altKey && !event.shiftKey) {
+    if (key === 'b') {
+      event.preventDefault()
+      toggleDiffPanel()
+      return
+    }
+  }
 }
 
 function onSubmitThreadMessage(payload: { text: string; imageUrls: string[]; fileAttachments: Array<{ label: string; path: string; fsPath: string }>; skills: Array<{ name: string; path: string }>; mode: 'steer' | 'queue'; rollbackLatestUserTurn?: boolean }): void {
@@ -1439,6 +1489,44 @@ function saveSidebarCollapsed(value: boolean): void {
   window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, value ? '1' : '0')
 }
 
+const TERMINAL_OPEN_STORAGE_KEY = 'codex-web-local.terminal-open.v1'
+
+function loadTerminalOpen(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.localStorage.getItem(TERMINAL_OPEN_STORAGE_KEY) === '1'
+}
+
+function saveTerminalOpen(value: boolean): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(TERMINAL_OPEN_STORAGE_KEY, value ? '1' : '0')
+}
+
+const isTerminalOpen = ref(loadTerminalOpen())
+
+function toggleTerminal(): void {
+  isTerminalOpen.value = !isTerminalOpen.value
+  saveTerminalOpen(isTerminalOpen.value)
+}
+
+const DIFF_PANEL_OPEN_STORAGE_KEY = 'codex-web-local.diff-panel-open.v1'
+
+function loadDiffPanelOpen(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.localStorage.getItem(DIFF_PANEL_OPEN_STORAGE_KEY) === '1'
+}
+
+function saveDiffPanelOpen(value: boolean): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(DIFF_PANEL_OPEN_STORAGE_KEY, value ? '1' : '0')
+}
+
+const isDiffPanelOpen = ref(loadDiffPanelOpen())
+
+function toggleDiffPanel(): void {
+  isDiffPanelOpen.value = !isDiffPanelOpen.value
+  saveDiffPanelOpen(isDiffPanelOpen.value)
+}
+
 function normalizeMessageType(rawType: string | undefined, role: string): string {
   const normalized = (rawType ?? '').trim()
   if (normalized.length > 0) {
@@ -1664,6 +1752,22 @@ async function submitFirstMessageForNewThread(
 
 <style scoped>
 @reference "tailwindcss";
+
+.terminal-toggle-btn {
+  @apply flex items-center justify-center w-8 h-8 rounded-md text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer text-lg;
+}
+
+.terminal-toggle-btn.is-active {
+  @apply text-slate-900 bg-slate-100;
+}
+
+:global(:root.dark) .terminal-toggle-btn {
+  @apply text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800;
+}
+
+:global(:root.dark) .terminal-toggle-btn.is-active {
+  @apply text-zinc-100 bg-zinc-800;
+}
 
 .sidebar-root {
   @apply h-full flex flex-col select-none;
