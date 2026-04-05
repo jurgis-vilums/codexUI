@@ -10,6 +10,7 @@ import { createDirectoryListingHtml, createTextEditorHtml, decodeBrowsePath, isT
 import { WebSocketServer, type WebSocket } from 'ws'
 import { getOrCreateSession, attachDataListener, writeToSession, resizeSession, startGracePeriod, destroySession } from './terminalPty.js'
 import { handleGitAction, type GitAction } from './gitService.js'
+import { discoverProcesses, stopProcess, getTailscaleStatus, setSelfPid } from './processService.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distDir = join(__dirname, '..', 'dist')
@@ -191,6 +192,12 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
     }
   })
 
+  // 6b. Tailscale status endpoint
+  app.get('/codex-api/tailscale', async (_req, res) => {
+    const status = await getTailscaleStatus()
+    res.json(status)
+  })
+
   const hasFrontendAssets = existsSync(spaEntryFile)
 
   // 7. Static files from Vue build
@@ -232,6 +239,7 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
       const wss = new WebSocketServer({ noServer: true })
       const terminalWss = new WebSocketServer({ noServer: true })
       const gitWss = new WebSocketServer({ noServer: true })
+      const processesWss = new WebSocketServer({ noServer: true })
 
       server.on('upgrade', (req: IncomingMessage, socket, head) => {
         const url = new URL(req.url ?? '', 'http://localhost')
@@ -252,6 +260,13 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
         if (url.pathname === '/ws/git') {
           gitWss.handleUpgrade(req, socket, head, (ws) => {
             gitWss.emit('connection', ws, req)
+          })
+          return
+        }
+
+        if (url.pathname === '/ws/processes') {
+          processesWss.handleUpgrade(req, socket, head, (ws) => {
+            processesWss.emit('connection', ws, req)
           })
           return
         }
@@ -308,6 +323,70 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
               ws.send(JSON.stringify({ type: 'git-result', _id: null, action: 'error', error: String(err) }))
             }
           }
+        })
+      })
+
+      // ── Processes WebSocket ──────────────────────────────────────────────
+      let processInterval: ReturnType<typeof setInterval> | null = null
+      const processClients = new Set<WebSocket>()
+
+      setSelfPid(process.pid)
+
+      async function broadcastProcesses(): Promise<void> {
+        if (processClients.size === 0) return
+        try {
+          const processes = await discoverProcesses()
+          const msg = JSON.stringify({ type: 'process-list', processes })
+          for (const client of processClients) {
+            if (client.readyState === 1) {
+              client.send(msg)
+            }
+          }
+        } catch (err) {
+          console.error('[processes] discovery error:', err)
+        }
+      }
+
+      processesWss.on('connection', (ws: WebSocket) => {
+        processClients.add(ws)
+
+        // Start polling if this is the first client
+        if (!processInterval) {
+          processInterval = setInterval(broadcastProcesses, 5000)
+        }
+        // Send immediately to new client
+        discoverProcesses().then((processes) => {
+          if (ws.readyState === 1) {
+            ws.send(JSON.stringify({ type: 'process-list', processes }))
+          }
+        })
+
+        ws.on('message', async (msg: Buffer | string) => {
+          try {
+            const parsed = JSON.parse(typeof msg === 'string' ? msg : msg.toString())
+            if (parsed.action === 'stop' && typeof parsed.pid === 'number') {
+              const result = await stopProcess(parsed.pid)
+              if (ws.readyState === 1) {
+                ws.send(JSON.stringify({ type: 'process-result', _id: parsed._id, ...result }))
+              }
+              // Broadcast updated list immediately after stop
+              await broadcastProcesses()
+            }
+          } catch (err) {
+            console.error('[processes] message error:', err)
+          }
+        })
+
+        ws.on('close', () => {
+          processClients.delete(ws)
+          if (processClients.size === 0 && processInterval) {
+            clearInterval(processInterval)
+            processInterval = null
+          }
+        })
+
+        ws.on('error', () => {
+          processClients.delete(ws)
         })
       })
 
