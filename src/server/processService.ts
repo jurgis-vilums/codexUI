@@ -103,7 +103,7 @@ async function getListeningPortsWindows(): Promise<RawListening[]> {
   const results: RawListening[] = []
   for (const line of stdout.split('\n')) {
     // Match lines like:  TCP    0.0.0.0:5173    0.0.0.0:0    LISTENING    12840
-    const match = line.match(/TCP\s+[\d.]+:(\d+)\s+[\d.]+:\d+\s+LISTENING\s+(\d+)/i)
+    const match = line.match(/TCP\s+(?:[\d.]+|\[[\d:a-f]+\]):(\d+)\s+.*LISTENING\s+(\d+)/i)
     if (match) {
       const port = parseInt(match[1], 10)
       const pid = parseInt(match[2], 10)
@@ -141,11 +141,11 @@ async function getCommandLine(pid: number): Promise<string> {
 }
 
 async function getCommandLineWindows(pid: number): Promise<string> {
-  const stdout = await execPromise('wmic', [
-    'process', 'where', `ProcessId=${pid}`, 'get', 'CommandLine', '/format:list',
+  const stdout = await execPromise('powershell.exe', [
+    '-NoProfile', '-NonInteractive', '-Command',
+    `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`,
   ])
-  const match = stdout.match(/CommandLine=(.+)/)
-  return match ? match[1].trim() : ''
+  return stdout.trim()
 }
 
 async function getCommandLineLinux(pid: number): Promise<string> {
