@@ -2913,10 +2913,12 @@ export function useDesktopState() {
       queueEventDrivenSync(notification)
     })
 
-    // Background poll to catch threads created by external sessions
+    // Background poll to catch threads created by external sessions.
+    // Uses syncThreadStatus (not loadThreads directly) to respect the isPolling guard
+    // and avoid concurrent state mutations with event-driven syncs.
     if (!backgroundPollTimer) {
-      backgroundPollTimer = setInterval(() => {
-        void loadThreads()
+      backgroundPollTimer = window.setInterval(() => {
+        syncThreadStatus().catch(() => {})
       }, BACKGROUND_POLL_MS)
     }
   }
@@ -2954,7 +2956,7 @@ export function useDesktopState() {
     }
 
     if (backgroundPollTimer) {
-      clearInterval(backgroundPollTimer)
+      window.clearInterval(backgroundPollTimer)
       backgroundPollTimer = null
     }
 
