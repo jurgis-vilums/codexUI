@@ -338,8 +338,8 @@
         <template #diff>
           <DiffPanel :visible="isDiffPanelOpen" />
         </template>
-    <FeedbackBubble />
   </DesktopLayout>
+  <FeedbackBubble />
 </template>
 
 <script setup lang="ts">
