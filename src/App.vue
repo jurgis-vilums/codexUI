@@ -322,7 +322,7 @@
       <TerminalPanel :visible="isTerminalOpen" />
     </template>
         <template #diff>
-          <DiffPanel :visible="isDiffPanelOpen" />
+          <DiffPanel :visible="isDiffPanelOpen" :show-close-button="isMobile" @close="toggleDiffPanel" />
         </template>
   </DesktopLayout>
 </template>

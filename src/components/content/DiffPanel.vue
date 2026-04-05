@@ -2,6 +2,9 @@
   <div class="diff-panel">
     <!-- Toolbar -->
     <div class="diff-toolbar">
+      <button v-if="showCloseButton" type="button" class="diff-close-btn" title="Close diff panel" @click="emit('close')">
+        <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m15 6l-6 6l6 6"/></svg>
+      </button>
       <div class="diff-tabs">
         <button
           type="button"
@@ -70,6 +73,11 @@ import DiffFileTree from './DiffFileTree.vue'
 
 const props = defineProps<{
   visible: boolean
+  showCloseButton?: boolean
+}>()
+
+const emit = defineEmits<{
+  close: []
 }>()
 
 type GitFileStatus = {
@@ -239,6 +247,10 @@ onBeforeUnmount(() => {
   @apply flex items-center gap-0.5;
 }
 
+.diff-close-btn {
+  @apply p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded cursor-pointer transition-colors text-lg;
+}
+
 .diff-toolbar-btn {
   @apply p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded cursor-pointer transition-colors text-base;
 }
@@ -290,6 +302,10 @@ onBeforeUnmount(() => {
 
 :global(:root.dark) .diff-tab-badge {
   @apply bg-zinc-700 text-zinc-300;
+}
+
+:global(:root.dark) .diff-close-btn {
+  @apply text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800;
 }
 
 :global(:root.dark) .diff-toolbar-btn {
