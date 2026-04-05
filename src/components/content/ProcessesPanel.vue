@@ -25,38 +25,41 @@
       {{ processes.length }} process{{ processes.length !== 1 ? 'es' : '' }} detected
     </div>
 
-    <!-- Process List -->
+    <!-- Process List (grouped) -->
     <div class="processes-list">
-      <div
-        v-for="proc in processes"
-        :key="proc.pid"
-        class="process-card"
-        :class="{ 'is-unknown': proc.type === 'unknown' }"
-      >
-        <div class="process-info">
-          <span class="process-dot" :class="'dot-' + proc.type"></span>
-          <div class="process-details">
-            <div class="process-name-row">
-              <span class="process-name">{{ proc.name }}</span>
-              <span class="process-runtime">{{ proc.runtime }}</span>
-            </div>
-            <div class="process-meta">
-              :{{ proc.port }} &middot; PID {{ proc.pid }} &middot; {{ formatUptime(proc.firstSeen) }}
+      <div v-for="group in groupedProcesses" :key="group.type" class="process-group">
+        <div class="process-group-label">{{ group.label }}</div>
+        <div
+          v-for="proc in group.items"
+          :key="proc.pid"
+          class="process-card"
+          :class="{ 'is-unknown': proc.type === 'unknown' }"
+        >
+          <div class="process-info">
+            <span class="process-dot" :class="'dot-' + proc.type"></span>
+            <div class="process-details">
+              <div class="process-name-row">
+                <span class="process-name">{{ proc.name }}</span>
+                <span class="process-runtime">{{ proc.runtime }}</span>
+              </div>
+              <div class="process-meta">
+                :{{ proc.port }} &middot; PID {{ proc.pid }} &middot; {{ formatUptime(proc.firstSeen) }}
+              </div>
             </div>
           </div>
-        </div>
-        <div class="process-actions">
-          <button
-            v-if="proc.type === 'web'"
-            class="action-btn action-open"
-            @click="openProcess(proc)"
-          >Open</button>
-          <button
-            v-if="proc.type === 'web' || proc.type === 'backend'"
-            class="action-btn action-stop"
-            @click="handleStop(proc)"
-          >Stop</button>
-          <span v-if="proc.type === 'unknown'" class="unknown-label">unknown type</span>
+          <div class="process-actions">
+            <button
+              v-if="proc.type === 'web'"
+              class="action-btn action-open"
+              @click="openProcess(proc)"
+            >Open</button>
+            <button
+              v-if="proc.type === 'web' || proc.type === 'backend'"
+              class="action-btn action-stop"
+              @click="handleStop(proc)"
+            >Stop</button>
+            <span v-if="proc.type === 'unknown'" class="unknown-label">unknown type</span>
+          </div>
         </div>
       </div>
 
@@ -73,7 +76,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 
 interface ProcessInfo {
   pid: number
@@ -87,6 +90,27 @@ interface ProcessInfo {
 
 const processes = ref<ProcessInfo[]>([])
 const tailscale = ref<{ hostname: string | null; online: boolean }>({ hostname: null, online: false })
+
+const TYPE_ORDER: Record<string, number> = { web: 0, backend: 1, unknown: 2 }
+const TYPE_LABELS: Record<string, string> = { web: 'Frontends', backend: 'Backends', unknown: 'Other' }
+
+interface ProcessGroup {
+  type: string
+  label: string
+  items: ProcessInfo[]
+}
+
+const groupedProcesses = computed<ProcessGroup[]>(() => {
+  const groups = new Map<string, ProcessInfo[]>()
+  for (const proc of processes.value) {
+    const list = groups.get(proc.type) ?? []
+    list.push(proc)
+    groups.set(proc.type, list)
+  }
+  return Array.from(groups.entries())
+    .sort((a, b) => (TYPE_ORDER[a[0]] ?? 9) - (TYPE_ORDER[b[0]] ?? 9))
+    .map(([type, items]) => ({ type, label: TYPE_LABELS[type] ?? type, items }))
+})
 const toast = ref<{ text: string; type: 'success' | 'error' } | null>(null)
 let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -241,7 +265,19 @@ onBeforeUnmount(() => {
 
 /* Process List */
 .processes-list {
-  @apply px-5 space-y-2.5 pb-5;
+  @apply px-5 pb-5;
+}
+
+.process-group {
+  @apply mb-4;
+}
+
+.process-group-label {
+  @apply text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)] mb-2 mt-1;
+}
+
+.process-group .process-card + .process-card {
+  @apply mt-2.5;
 }
 
 .process-card {
