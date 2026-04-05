@@ -64,6 +64,11 @@
         No dev server processes detected.
       </div>
     </div>
+
+    <!-- Toast -->
+    <div v-if="toast" class="processes-toast" :class="toast.type === 'error' ? 'toast-error' : 'toast-success'">
+      {{ toast.text }}
+    </div>
   </div>
 </template>
 
@@ -82,8 +87,16 @@ interface ProcessInfo {
 
 const processes = ref<ProcessInfo[]>([])
 const tailscale = ref<{ hostname: string | null; online: boolean }>({ hostname: null, online: false })
+const toast = ref<{ text: string; type: 'success' | 'error' } | null>(null)
 let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+function showToast(text: string, type: 'success' | 'error'): void {
+  toast.value = { text, type }
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toast.value = null }, 3000)
+}
 
 // ── WebSocket ────────────────────────────────────────────────────────────
 
@@ -97,7 +110,11 @@ function connectWebSocket(): void {
       if (data.type === 'process-list') {
         processes.value = data.processes
       } else if (data.type === 'process-result') {
-        // Toast feedback handled inline — no separate toast system needed
+        if (data.success) {
+          showToast('Process stopped', 'success')
+        } else if (data.error) {
+          showToast(`Failed to stop: ${data.error}`, 'error')
+        }
       }
     } catch { /* ignore parse errors */ }
   }
@@ -163,6 +180,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (reconnectTimer) clearTimeout(reconnectTimer)
+  if (toastTimer) clearTimeout(toastTimer)
   ws?.close()
   ws = null
 })
@@ -304,5 +322,18 @@ onBeforeUnmount(() => {
 
 .processes-empty {
   @apply text-center py-12 text-sm text-[var(--text-secondary)];
+}
+
+/* Toast */
+.processes-toast {
+  @apply fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-sm font-medium z-50;
+}
+
+.toast-success {
+  @apply bg-green-800 text-green-100;
+}
+
+.toast-error {
+  @apply bg-red-800 text-red-100;
 }
 </style>
