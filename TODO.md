@@ -14,3 +14,6 @@
 
 - [ ] Header buttons lack visual separation — terminal and git icons sit tight against Codex/Claude toggle with no gap
 - [ ] Hide conf UI when collapsed — collapsed state should fully remove the extra panel/content
+
+## Feedback
+- [ ] [2026-04-06 00:10]: The sidebar is too wide on mobile
