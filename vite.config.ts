@@ -11,6 +11,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import pkg from "./package.json";
 import { getOrCreateSession, addClient, writeToSession, resizeSession, startGracePeriod } from "./src/server/terminalPty.js";
 import { handleGitAction, type GitAction } from "./src/server/gitService.js";
+import { discoverProcesses, stopProcess, getTailscaleStatus, setSelfPid } from "./src/server/processService.js";
 
 const IMAGE_CONTENT_TYPES: Record<string, string> = {
   ".avif": "image/avif",
@@ -117,6 +118,7 @@ export default defineConfig({
             const wss = new WebSocketServer({ noServer: true });
             const terminalWss = new WebSocketServer({ noServer: true });
             const gitWss = new WebSocketServer({ noServer: true });
+            const processesWss = new WebSocketServer({ noServer: true });
 
             httpServer.on("upgrade", (req, socket, head) => {
               const requestUrl = new URL(req.url ?? "", "http://localhost");
@@ -129,6 +131,12 @@ export default defineConfig({
               if (requestUrl.pathname === "/ws/git") {
                 gitWss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
                   gitWss.emit("connection", ws, req);
+                });
+                return;
+              }
+              if (requestUrl.pathname === "/ws/processes") {
+                processesWss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
+                  processesWss.emit("connection", ws, req);
                 });
                 return;
               }
@@ -196,10 +204,74 @@ export default defineConfig({
               });
             });
 
+            // ── Processes WebSocket ──────────────────────────────────────
+            let processInterval: ReturnType<typeof setInterval> | null = null;
+            const processClients = new Set<WebSocket>();
+            setSelfPid(process.pid);
+
+            async function broadcastProcesses(): Promise<void> {
+              if (processClients.size === 0) return;
+              try {
+                const processes = await discoverProcesses();
+                const msg = JSON.stringify({ type: "process-list", processes });
+                for (const client of processClients) {
+                  if (client.readyState === client.OPEN) {
+                    client.send(msg);
+                  }
+                }
+              } catch (err) {
+                console.error("[processes] discovery error:", err);
+              }
+            }
+
+            processesWss.on("connection", (ws: WebSocket) => {
+              processClients.add(ws);
+              if (!processInterval) {
+                processInterval = setInterval(broadcastProcesses, 5000);
+              }
+              discoverProcesses().then((processes) => {
+                if (ws.readyState === ws.OPEN) {
+                  ws.send(JSON.stringify({ type: "process-list", processes }));
+                }
+              });
+
+              ws.on("message", async (msg: Buffer | string) => {
+                try {
+                  const parsed = JSON.parse(typeof msg === "string" ? msg : msg.toString());
+                  if (parsed.action === "stop" && typeof parsed.pid === "number") {
+                    const result = await stopProcess(parsed.pid);
+                    if (ws.readyState === ws.OPEN) {
+                      ws.send(JSON.stringify({ type: "process-result", _id: parsed._id, ...result }));
+                    }
+                    await broadcastProcesses();
+                  }
+                } catch (err) {
+                  console.error("[processes] message error:", err);
+                }
+              });
+
+              ws.on("close", () => {
+                processClients.delete(ws);
+                if (processClients.size === 0 && processInterval) {
+                  clearInterval(processInterval);
+                  processInterval = null;
+                }
+              });
+              ws.on("error", () => {
+                processClients.delete(ws);
+                if (processClients.size === 0 && processInterval) {
+                  clearInterval(processInterval);
+                  processInterval = null;
+                }
+              });
+            });
+
             httpServer.once("close", () => {
               wss.close();
               terminalWss.close();
               gitWss.close();
+              processesWss.close();
+              if (processInterval) clearInterval(processInterval);
             });
           }
         }
@@ -366,6 +438,16 @@ export default defineConfig({
             res.setHeader("Content-Type", "application/json");
             res.end(JSON.stringify({ error: "Write failed." }));
           });
+        });
+        // Tailscale status endpoint
+        server.middlewares.use(async (req, res, next) => {
+          if (!req.url || req.method !== "GET") return next();
+          const url = new URL(req.url, "http://localhost");
+          if (url.pathname !== "/codex-api/tailscale") return next();
+          const status = await getTailscaleStatus();
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify(status));
         });
         server.middlewares.use(bridge);
         server.httpServer?.once("close", () => {
