@@ -338,6 +338,7 @@
         <template #diff>
           <DiffPanel :visible="isDiffPanelOpen" />
         </template>
+    <FeedbackBubble />
   </DesktopLayout>
 </template>
 
@@ -356,6 +357,7 @@ import ComposerDropdown from './components/content/ComposerDropdown.vue'
 import ComposerRuntimeDropdown from './components/content/ComposerRuntimeDropdown.vue'
 import SkillsHub from './components/content/SkillsHub.vue'
 import ProcessesPanel from './components/content/ProcessesPanel.vue'
+import FeedbackBubble from './components/content/FeedbackBubble.vue'
 import TerminalPanel from './components/content/TerminalPanel.vue'
 import IconTablerTerminal from './components/icons/IconTablerTerminal.vue'
 import DiffPanel from './components/content/DiffPanel.vue'
