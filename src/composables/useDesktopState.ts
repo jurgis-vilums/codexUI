@@ -2900,6 +2900,9 @@ export function useDesktopState() {
     }
   }
 
+  let backgroundPollTimer: ReturnType<typeof setInterval> | null = null
+  const BACKGROUND_POLL_MS = 30_000
+
   function startPolling(): void {
     if (typeof window === 'undefined') return
 
@@ -2909,6 +2912,13 @@ export function useDesktopState() {
       applyRealtimeUpdates(notification)
       queueEventDrivenSync(notification)
     })
+
+    // Background poll to catch threads created by external sessions
+    if (!backgroundPollTimer) {
+      backgroundPollTimer = setInterval(() => {
+        void loadThreads()
+      }, BACKGROUND_POLL_MS)
+    }
   }
 
   async function loadPendingServerRequestsFromBridge(): Promise<void> {
@@ -2941,6 +2951,11 @@ export function useDesktopState() {
     if (stopNotificationStream) {
       stopNotificationStream()
       stopNotificationStream = null
+    }
+
+    if (backgroundPollTimer) {
+      clearInterval(backgroundPollTimer)
+      backgroundPollTimer = null
     }
 
     pendingThreadsRefresh = false
