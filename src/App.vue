@@ -54,6 +54,17 @@
             Skills Hub
           </button>
 
+          <button
+            v-if="!isSidebarCollapsed"
+            class="sidebar-skills-link"
+            :class="{ 'is-active': isProcessesRoute }"
+            type="button"
+            @click="router.push({ name: 'processes' }); isMobile && setSidebarCollapsed(true)"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-2px;margin-right:4px"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            Processes
+          </button>
+
           <SidebarThreadTree :groups="projectGroups" :project-display-name-by-id="projectDisplayNameById"
             v-if="!isSidebarCollapsed"
             :selected-thread-id="selectedThreadId" :is-loading="isLoadingThreads"
@@ -177,6 +188,9 @@
         <section class="content-body">
           <template v-if="isSkillsRoute">
             <SkillsHub @skills-changed="onSkillsChanged" />
+          </template>
+          <template v-else-if="isProcessesRoute">
+            <ProcessesPanel />
           </template>
           <template v-else-if="openFilePath">
             <div class="content-grid">
@@ -341,6 +355,7 @@ import RateLimitStatus from './components/content/RateLimitStatus.vue'
 import ComposerDropdown from './components/content/ComposerDropdown.vue'
 import ComposerRuntimeDropdown from './components/content/ComposerRuntimeDropdown.vue'
 import SkillsHub from './components/content/SkillsHub.vue'
+import ProcessesPanel from './components/content/ProcessesPanel.vue'
 import TerminalPanel from './components/content/TerminalPanel.vue'
 import IconTablerTerminal from './components/icons/IconTablerTerminal.vue'
 import DiffPanel from './components/content/DiffPanel.vue'
@@ -610,8 +625,10 @@ const knownThreadIdSet = computed(() => {
 
 const isHomeRoute = computed(() => route.name === 'home')
 const isSkillsRoute = computed(() => route.name === 'skills')
+const isProcessesRoute = computed(() => route.name === 'processes')
 const contentTitle = computed(() => {
   if (isSkillsRoute.value) return 'Skills'
+  if (isProcessesRoute.value) return 'Processes'
   if (isHomeRoute.value) return 'New thread'
   return selectedThread.value?.title ?? 'Choose a thread'
 })
