@@ -9,7 +9,7 @@ import { stat, writeFile } from "node:fs/promises";
 import { basename, extname, isAbsolute } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import pkg from "./package.json";
-import { getOrCreateSession, attachDataListener, writeToSession, resizeSession, startGracePeriod } from "./src/server/terminalPty.js";
+import { getOrCreateSession, addClient, writeToSession, resizeSession, startGracePeriod } from "./src/server/terminalPty.js";
 import { handleGitAction, type GitAction } from "./src/server/gitService.js";
 
 const IMAGE_CONTENT_TYPES: Record<string, string> = {
@@ -156,8 +156,8 @@ export default defineConfig({
             });
 
             terminalWss.on("connection", (ws: WebSocket) => {
-              const sess = getOrCreateSession();
-              attachDataListener((data: string) => {
+              getOrCreateSession();
+              const removeClient = addClient((data: string) => {
                 if (ws.readyState === ws.OPEN) ws.send(data);
               });
 
@@ -175,8 +175,8 @@ export default defineConfig({
                 writeToSession(str);
               });
 
-              ws.on("close", () => startGracePeriod());
-              ws.on("error", () => startGracePeriod());
+              ws.on("close", () => { removeClient(); startGracePeriod(); });
+              ws.on("error", () => { removeClient(); startGracePeriod(); });
             });
 
             gitWss.on("connection", (ws: WebSocket) => {

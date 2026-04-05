@@ -131,11 +131,16 @@ function connectWebSocket(): void {
   }
 
   ws.onclose = () => {
-    for (const [id, cb] of pendingCallbacks) {
+    for (const [, cb] of pendingCallbacks) {
       cb({ error: 'Connection closed' })
     }
     pendingCallbacks.clear()
     ws = null
+    if (props.visible) {
+      setTimeout(() => {
+        if (props.visible && !ws) connectWebSocket()
+      }, 1000)
+    }
   }
 }
 

@@ -76,10 +76,38 @@ export async function gitStatus(cwd: string): Promise<GitFileStatus[]> {
   return parsePorcelainV2(stdout)
 }
 
+async function gitDiffUntracked(cwd: string): Promise<string> {
+  const { stdout: statusOut } = await gitExec(['status', '--porcelain=v2'], cwd)
+  const untrackedPaths = statusOut.split('\n')
+    .filter(line => line.startsWith('? '))
+    .map(line => line.slice(2))
+
+  if (untrackedPaths.length === 0) return ''
+
+  const diffs: string[] = []
+  for (const filePath of untrackedPaths) {
+    try {
+      await gitExec(['diff', '--no-index', '--no-color', '--unified=3', '--', '/dev/null', filePath], cwd)
+    } catch (err: unknown) {
+      // git diff --no-index exits with code 1 when files differ — stdout has the diff
+      const e = err as { stdout?: string }
+      if (e.stdout) diffs.push(e.stdout)
+    }
+  }
+
+  return diffs.join('\n')
+}
+
 export async function gitDiffUnstaged(cwd: string, path?: string): Promise<string> {
   const args = ['diff', '--no-color', '--unified=3']
   if (path) args.push('--', path)
   const { stdout } = await gitExec(args, cwd)
+
+  if (!path) {
+    const untrackedDiff = await gitDiffUntracked(cwd)
+    return untrackedDiff ? stdout + '\n' + untrackedDiff : stdout
+  }
+
   return stdout
 }
 

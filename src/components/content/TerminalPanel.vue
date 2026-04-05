@@ -84,11 +84,25 @@ function connectWebSocket(): void {
   }
 
   ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data)
+      if (msg.type === 'exit') {
+        terminal?.write('\r\n\x1b[33m[Terminal exited]\x1b[0m\r\n')
+        return
+      }
+    } catch {
+      // Not JSON — regular terminal output
+    }
     terminal?.write(event.data)
   }
 
   ws.onclose = () => {
-    // Will reconnect on next toggle-open
+    ws = null
+    if (props.visible) {
+      setTimeout(() => {
+        if (props.visible && !ws) connectWebSocket()
+      }, 1000)
+    }
   }
 }
 

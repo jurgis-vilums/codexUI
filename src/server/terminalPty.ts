@@ -3,11 +3,12 @@ import { platform } from 'node:os'
 
 const GRACE_PERIOD_MS = 5 * 60 * 1000 // 5 minutes
 
+type TerminalClient = (data: string) => void
+
 type TerminalSession = {
   ptyProcess: pty.IPty
   graceTimer: ReturnType<typeof setTimeout> | null
-  onData: ((data: string) => void) | null
-  dataDisposable: { dispose(): void } | null
+  clients: Set<TerminalClient>
 }
 
 let session: TerminalSession | null = null
@@ -35,22 +36,33 @@ export function getOrCreateSession(cwd?: string): TerminalSession {
     env: process.env as Record<string, string>,
   })
 
-  session = { ptyProcess, graceTimer: null, onData: null, dataDisposable: null }
+  session = { ptyProcess, graceTimer: null, clients: new Set() }
 
-  ptyProcess.onExit(() => {
+  // Broadcast PTY output to all connected clients
+  ptyProcess.onData((data: string) => {
+    for (const client of session!.clients) {
+      client(data)
+    }
+  })
+
+  // Notify all clients on PTY exit
+  ptyProcess.onExit(({ exitCode }) => {
+    const exitMsg = JSON.stringify({ type: 'exit', code: exitCode })
+    for (const client of session!.clients) {
+      client(exitMsg)
+    }
     session = null
   })
 
   return session
 }
 
-export function attachDataListener(listener: (data: string) => void): void {
-  if (!session) return
-  if (session.dataDisposable) {
-    session.dataDisposable.dispose()
+export function addClient(send: TerminalClient): () => void {
+  if (!session) return () => {}
+  session.clients.add(send)
+  return () => {
+    session?.clients.delete(send)
   }
-  session.onData = listener
-  session.dataDisposable = session.ptyProcess.onData(listener)
 }
 
 export function writeToSession(data: string): void {
@@ -66,8 +78,14 @@ export function resizeSession(cols: number, rows: number): void {
   session.ptyProcess.resize(cols, rows)
 }
 
+export function hasClients(): boolean {
+  return session ? session.clients.size > 0 : false
+}
+
 export function startGracePeriod(): void {
   if (!session) return
+  // Only start grace period when no clients remain
+  if (session.clients.size > 0) return
   if (session.graceTimer) clearTimeout(session.graceTimer)
   session.graceTimer = setTimeout(() => {
     if (session) {
@@ -80,6 +98,7 @@ export function startGracePeriod(): void {
 export function destroySession(): void {
   if (!session) return
   if (session.graceTimer) clearTimeout(session.graceTimer)
+  session.clients.clear()
   session.ptyProcess.kill()
   session = null
 }
