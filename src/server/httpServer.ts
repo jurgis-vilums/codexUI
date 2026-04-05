@@ -11,6 +11,7 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import { getOrCreateSession, addClient, writeToSession, resizeSession, startGracePeriod, destroySession } from './terminalPty.js'
 import { handleGitAction, type GitAction } from './gitService.js'
 import { discoverProcesses, stopProcess, getTailscaleStatus, setSelfPid } from './processService.js'
+import { readFeedback, appendFeedback } from './feedbackService.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distDir = join(__dirname, '..', 'dist')
@@ -196,6 +197,22 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
   app.get('/codex-api/tailscale', async (_req, res) => {
     const status = await getTailscaleStatus()
     res.json(status)
+  })
+
+  // Feedback endpoints
+  app.get('/codex-api/feedback', async (_req, res) => {
+    const entries = await readFeedback()
+    res.json(entries)
+  })
+
+  app.post('/codex-api/feedback', express.json(), async (req, res) => {
+    const text = typeof req.body?.text === 'string' ? req.body.text.trim() : ''
+    if (!text) {
+      res.status(400).json({ error: 'Text is required' })
+      return
+    }
+    await appendFeedback(text)
+    res.json({ ok: true })
   })
 
   const hasFrontendAssets = existsSync(spaEntryFile)

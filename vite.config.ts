@@ -12,6 +12,7 @@ import pkg from "./package.json";
 import { getOrCreateSession, addClient, writeToSession, resizeSession, startGracePeriod } from "./src/server/terminalPty.js";
 import { handleGitAction, type GitAction } from "./src/server/gitService.js";
 import { discoverProcesses, stopProcess, getTailscaleStatus, setSelfPid } from "./src/server/processService.js";
+import { readFeedback, appendFeedback } from "./src/server/feedbackService.js";
 
 const IMAGE_CONTENT_TYPES: Record<string, string> = {
   ".avif": "image/avif",
@@ -448,6 +449,44 @@ export default defineConfig({
           res.statusCode = 200;
           res.setHeader("Content-Type", "application/json");
           res.end(JSON.stringify(status));
+        });
+        // Feedback endpoints
+        server.middlewares.use(async (req, res, next) => {
+          if (!req.url) return next();
+          const url = new URL(req.url, "http://localhost");
+          if (url.pathname === "/codex-api/feedback" && req.method === "GET") {
+            const entries = await readFeedback();
+            res.statusCode = 200;
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify(entries));
+            return;
+          }
+          if (url.pathname === "/codex-api/feedback" && req.method === "POST") {
+            const chunks: Buffer[] = [];
+            req.on("data", (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+            req.on("end", async () => {
+              try {
+                const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+                const text = typeof body?.text === "string" ? body.text.trim() : "";
+                if (!text) {
+                  res.statusCode = 400;
+                  res.setHeader("Content-Type", "application/json");
+                  res.end(JSON.stringify({ error: "Text is required" }));
+                  return;
+                }
+                await appendFeedback(text);
+                res.statusCode = 200;
+                res.setHeader("Content-Type", "application/json");
+                res.end(JSON.stringify({ ok: true }));
+              } catch {
+                res.statusCode = 400;
+                res.setHeader("Content-Type", "application/json");
+                res.end(JSON.stringify({ error: "Invalid JSON" }));
+              }
+            });
+            return;
+          }
+          next();
         });
         server.middlewares.use(bridge);
         server.httpServer?.once("close", () => {
