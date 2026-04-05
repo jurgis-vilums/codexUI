@@ -8,7 +8,7 @@ import { createCodexBridgeMiddleware } from './codexAppServerBridge.js'
 import { createAuthSession } from './authMiddleware.js'
 import { createDirectoryListingHtml, createTextEditorHtml, decodeBrowsePath, isTextEditableFile, normalizeLocalPath } from './localBrowseUi.js'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { getOrCreateSession, attachDataListener, writeToSession, resizeSession, startGracePeriod, destroySession } from './terminalPty.js'
+import { getOrCreateSession, addClient, writeToSession, resizeSession, startGracePeriod, destroySession } from './terminalPty.js'
 import { handleGitAction, type GitAction } from './gitService.js'
 import { discoverProcesses, stopProcess, getTailscaleStatus, setSelfPid } from './processService.js'
 
@@ -281,8 +281,8 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
       })
 
       terminalWss.on('connection', (ws: WebSocket) => {
-        const sess = getOrCreateSession()
-        attachDataListener((data: string) => {
+        getOrCreateSession()
+        const removeClient = addClient((data: string) => {
           if (ws.readyState === 1) ws.send(data)
         })
 
@@ -301,10 +301,12 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
         })
 
         ws.on('close', () => {
+          removeClient()
           startGracePeriod()
         })
 
         ws.on('error', () => {
+          removeClient()
           startGracePeriod()
         })
       })
@@ -387,6 +389,10 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
 
         ws.on('error', () => {
           processClients.delete(ws)
+          if (processClients.size === 0 && processInterval) {
+            clearInterval(processInterval)
+            processInterval = null
+          }
         })
       })
 
