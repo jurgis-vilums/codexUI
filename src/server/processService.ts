@@ -133,28 +133,51 @@ async function getListeningPortsLinux(): Promise<RawListening[]> {
   return results
 }
 
-async function getCommandLine(pid: number): Promise<string> {
+async function getCommandLinesBatch(pids: number[]): Promise<Map<number, string>> {
+  const result = new Map<number, string>()
+  if (pids.length === 0) return result
+
   if (platform() === 'win32') {
-    return getCommandLineWindows(pid)
+    return getCommandLinesBatchWindows(pids)
   }
-  return getCommandLineLinux(pid)
+  return getCommandLinesBatchLinux(pids)
 }
 
-async function getCommandLineWindows(pid: number): Promise<string> {
-  const stdout = await execPromise('powershell.exe', [
-    '-NoProfile', '-NonInteractive', '-Command',
-    `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`,
-  ])
-  return stdout.trim()
-}
-
-async function getCommandLineLinux(pid: number): Promise<string> {
+async function getCommandLinesBatchWindows(pids: number[]): Promise<Map<number, string>> {
+  const result = new Map<number, string>()
   try {
-    const raw = await readFile(`/proc/${pid}/cmdline`, 'utf-8')
-    return raw.replace(/\0/g, ' ').trim()
+    const filter = pids.map(pid => `ProcessId=${pid}`).join(' OR ')
+    const stdout = await execPromise('powershell.exe', [
+      '-NoProfile', '-NonInteractive', '-Command',
+      `Get-CimInstance Win32_Process -Filter "${filter}" | ForEach-Object { "$($_.ProcessId)|$($_.CommandLine)" }`,
+    ])
+    for (const line of stdout.split('\n')) {
+      const sepIndex = line.indexOf('|')
+      if (sepIndex < 0) continue
+      const pid = parseInt(line.slice(0, sepIndex).trim(), 10)
+      const cmdLine = line.slice(sepIndex + 1).trim()
+      if (pid > 0 && cmdLine) {
+        result.set(pid, cmdLine)
+      }
+    }
   } catch {
-    return ''
+    // PowerShell failed — return empty map
   }
+  return result
+}
+
+async function getCommandLinesBatchLinux(pids: number[]): Promise<Map<number, string>> {
+  const result = new Map<number, string>()
+  await Promise.all(pids.map(async (pid) => {
+    try {
+      const raw = await readFile(`/proc/${pid}/cmdline`, 'utf-8')
+      const cmdLine = raw.replace(/\0/g, ' ').trim()
+      if (cmdLine) result.set(pid, cmdLine)
+    } catch {
+      // Process may have exited
+    }
+  }))
+  return result
 }
 
 // ── Process Map ──────────────────────────────────────────────────────────
@@ -181,30 +204,38 @@ export async function discoverProcesses(): Promise<ProcessInfo[]> {
 
   const now = Date.now()
   const activePids = new Set<number>()
+  const newPids: number[] = []
 
   for (const [pid, port] of byPid) {
     activePids.add(pid)
     if (processMap.has(pid)) {
-      // Update port if changed
       const existing = processMap.get(pid)!
       if (existing.port !== port) {
         existing.port = port
       }
-      continue
+    } else {
+      newPids.push(pid)
     }
-    // New process — resolve command line and classify
-    const commandLine = await getCommandLine(pid)
-    if (!commandLine) continue
-    const classification = classifyProcess(commandLine)
-    processMap.set(pid, {
-      pid,
-      name: classification.name,
-      runtime: classification.runtime,
-      type: classification.type,
-      port,
-      commandLine,
-      firstSeen: now,
-    })
+  }
+
+  // Batch-fetch command lines for all new PIDs in one call
+  if (newPids.length > 0) {
+    const commandLines = await getCommandLinesBatch(newPids)
+    for (const pid of newPids) {
+      const commandLine = commandLines.get(pid)
+      if (!commandLine) continue
+      const port = byPid.get(pid)!
+      const classification = classifyProcess(commandLine)
+      processMap.set(pid, {
+        pid,
+        name: classification.name,
+        runtime: classification.runtime,
+        type: classification.type,
+        port,
+        commandLine,
+        firstSeen: now,
+      })
+    }
   }
 
   // Remove processes that are no longer listening
