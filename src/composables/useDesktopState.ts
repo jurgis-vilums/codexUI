@@ -2086,12 +2086,15 @@ export function useDesktopState() {
     }, EVENT_SYNC_DEBOUNCE_MS)
   }
 
-  async function hydrateWorkspaceRootsStateIfNeeded(groups: UiProjectGroup[]): Promise<void> {
+  async function hydrateWorkspaceRootsStateIfNeeded(
+    groups: UiProjectGroup[],
+    prefetchedRootsState?: Awaited<ReturnType<typeof getWorkspaceRootsState>> | null,
+  ): Promise<void> {
     if (hasHydratedWorkspaceRootsState) return
     hasHydratedWorkspaceRootsState = true
 
     try {
-      const rootsState = await getWorkspaceRootsState()
+      const rootsState = prefetchedRootsState ?? await getWorkspaceRootsState()
       const hydratedOrder: string[] = []
       for (const rootPath of rootsState.order) {
         const projectName = toProjectNameFromWorkspaceRoot(rootPath)
@@ -2160,8 +2163,13 @@ export function useDesktopState() {
     }
 
     try {
-      const [groups] = await Promise.all([getThreadGroups(), loadThreadTitleCacheIfNeeded()])
-      await hydrateWorkspaceRootsStateIfNeeded(groups)
+      const rootsStatePromise = getWorkspaceRootsState().catch(() => null)
+      await loadThreadTitleCacheIfNeeded()
+      const rootsState = await rootsStatePromise
+      const groups = await getThreadGroups({
+        workspaceRoots: rootsState?.order ?? [],
+      })
+      await hydrateWorkspaceRootsStateIfNeeded(groups, rootsState)
 
       const nextProjectOrder = mergeProjectOrder(projectOrder.value, groups)
       if (!areStringArraysEqual(projectOrder.value, nextProjectOrder)) {
