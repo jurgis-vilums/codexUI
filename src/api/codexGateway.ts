@@ -14,6 +14,7 @@ import type {
   ReasoningEffort,
   ThreadListResponse,
   ThreadReadResponse,
+  ThreadSourceKind,
   Turn,
 } from './appServerDtos'
 import { normalizeCodexApiError } from './codexErrors'
@@ -24,13 +25,31 @@ import {
   readThreadInProgressFromResponse,
 } from './normalizers/v2'
 import type { SpeedMode, UiMessage, UiProjectGroup } from '../types/codex'
-import { normalizePathForUi } from '../pathUtils.js'
+import { normalizePathForUi, toProjectName } from '../pathUtils.js'
 
 type CurrentModelConfig = {
   model: string
   reasoningEffort: ReasoningEffort | ''
   speedMode: SpeedMode
 }
+
+type ThreadGroupQuery = {
+  workspaceRoots?: string[]
+}
+
+const THREAD_LIST_PAGE_SIZE = 100
+const ALL_THREAD_SOURCE_KINDS: ThreadSourceKind[] = [
+  'cli',
+  'vscode',
+  'exec',
+  'appServer',
+  'subAgent',
+  'subAgentReview',
+  'subAgentCompact',
+  'subAgentThreadSpawn',
+  'subAgentOther',
+  'unknown',
+]
 
 export type WorkspaceRootsState = {
   order: string[]
@@ -130,13 +149,46 @@ function normalizeSpeedMode(value: unknown): SpeedMode {
     : 'standard'
 }
 
-async function getThreadGroupsV2(): Promise<UiProjectGroup[]> {
-  const payload = await callRpc<ThreadListResponse>('thread/list', {
-    archived: false,
-    limit: 100,
-    sortKey: 'updated_at',
+function toNormalizedProjectName(value: string): string {
+  return toProjectName(normalizePathForUi(value))
+}
+
+async function getThreadGroupsV2(options?: ThreadGroupQuery): Promise<UiProjectGroup[]> {
+  const pendingProjectNames = new Set(
+    (options?.workspaceRoots ?? [])
+      .map((rootPath) => toNormalizedProjectName(rootPath))
+      .filter((projectName) => projectName.length > 0),
+  )
+  const seenThreadIds = new Set<string>()
+  const allThreads: ThreadListResponse['data'] = []
+  let cursor: string | null = null
+
+  do {
+    const payload: ThreadListResponse = await callRpc('thread/list', {
+      archived: false,
+      limit: THREAD_LIST_PAGE_SIZE,
+      sortKey: 'updated_at',
+      cursor,
+      sourceKinds: ALL_THREAD_SOURCE_KINDS,
+    })
+
+    for (const thread of payload.data) {
+      if (seenThreadIds.has(thread.id)) continue
+      seenThreadIds.add(thread.id)
+      allThreads.push(thread)
+      pendingProjectNames.delete(toNormalizedProjectName(thread.cwd))
+    }
+
+    cursor =
+      typeof payload.nextCursor === 'string' && payload.nextCursor.trim().length > 0
+        ? payload.nextCursor
+        : null
+  } while (cursor && pendingProjectNames.size > 0)
+
+  return normalizeThreadGroupsV2({
+    data: allThreads,
+    nextCursor: cursor,
   })
-  return normalizeThreadGroupsV2(payload)
 }
 
 async function getThreadMessagesV2(threadId: string): Promise<UiMessage[]> {
@@ -159,9 +211,9 @@ async function getThreadDetailV2(threadId: string): Promise<{ messages: UiMessag
   }
 }
 
-export async function getThreadGroups(): Promise<UiProjectGroup[]> {
+export async function getThreadGroups(options?: ThreadGroupQuery): Promise<UiProjectGroup[]> {
   try {
-    return await getThreadGroupsV2()
+    return await getThreadGroupsV2(options)
   } catch (error) {
     throw normalizeCodexApiError(error, 'Failed to load thread groups', 'thread/list')
   }
